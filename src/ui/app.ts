@@ -20,7 +20,7 @@ import {
   removeAllMounts,
   type Mount,
 } from '../mounts/registry';
-import { ensureServiceWorker, getBasePath, ServiceWorkerUnavailableError } from '../vfs/client';
+import { ensureServiceWorker, ServiceWorkerUnavailableError } from '../vfs/client';
 
 type Target = 'neuroglancer' | 'gallery';
 
@@ -65,13 +65,10 @@ export function startApp(): void {
   const viewerTitle = element<HTMLElement>('viewer-title');
   const viewerOpen = element<HTMLAnchorElement>('viewer-open');
   const viewerBack = element<HTMLButtonElement>('viewer-back');
-  const namespaceExample = element<HTMLElement>('namespace-example');
 
   const dropzones = Array.from(
     document.querySelectorAll<HTMLElement>('.dropzone'),
   );
-
-  namespaceExample.textContent = `${getBasePath()}_local/…`;
 
   let busy = false;
 

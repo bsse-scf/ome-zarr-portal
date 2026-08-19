@@ -292,8 +292,7 @@ main {
 .status.is-error .status-headline { color: var(--danger); }
 
 .status code,
-.notes code,
-.colophon code {
+.notes code {
   padding: 0.1em 0.35em;
   font-family: var(--mono);
   font-size: 0.86em;
@@ -425,13 +424,84 @@ main {
 
 .colophon {
   margin-top: auto;
-  padding-top: 1.5rem;
+  padding-top: 1.75rem;
   border-top: 1px solid var(--border);
   font-size: 0.82rem;
   color: var(--text-muted);
 }
 
-.colophon p { margin: 0; max-width: 46rem; text-wrap: pretty; }
+/*
+ * The footer is one centred row: who runs the service, then where its source
+ * lives. A rule between them keeps the two apart without a second line.
+ */
+.site-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 2rem;
+}
+
+.institution-logos {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 1.75rem;
+  align-items: center;
+}
+
+.institution-logos a { display: inline-flex; align-items: center; }
+
+.institution-logos img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+/* Heights are per-logo: the three wordmarks have different optical weights. */
+.institution-logos a:nth-of-type(1) img { height: 32px; }
+.institution-logos a:nth-of-type(2) img { height: 38px; }
+.institution-logos a:nth-of-type(3) img { height: 35px; }
+
+.repo-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding-left: 2rem;
+  border-left: 1px solid var(--border);
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: color 120ms ease;
+}
+
+.repo-link:hover { color: var(--accent); }
+.repo-link svg { flex: none; }
+
+@media (max-width: 760px) {
+  .site-footer { gap: 1.25rem; }
+
+  /* Stacked rather than side by side, so the rule between them would mislead. */
+  .repo-link { padding-left: 0; border-left: 0; }
+
+  /* Smaller marks, so three of them still fit on a phone. */
+  .institution-logos { gap: 1.25rem; }
+  .institution-logos a:nth-of-type(1) img { height: 26px; }
+  .institution-logos a:nth-of-type(2) img { height: 31px; }
+  .institution-logos a:nth-of-type(3) img { height: 29px; }
+}
+
+/*
+ * All three marks are dark artwork on transparency, which a dark page would
+ * swallow. Inverting flips the black lettering to white but also takes every
+ * hue to its opposite; rotating the hue a full half turn afterwards puts them
+ * back, so the ETH and facility names read as white while the SCF dots stay
+ * green and red and the LAF wordmark stays blue. One declaration, no light
+ * plate under the row, and it covers the PNG as well as the two SVGs.
+ */
+@media (prefers-color-scheme: dark) {
+  .institution-logos img { filter: invert(1) hue-rotate(180deg); }
+}
 
 /* ----------------------------------------------------------------- viewer */
 
