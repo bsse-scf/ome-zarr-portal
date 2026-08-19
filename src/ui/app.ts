@@ -39,6 +39,23 @@ function plural(count: number, singular: string, pluralForm = `${singular}s`): s
   return `${count} ${count === 1 ? singular : pluralForm}`;
 }
 
+/**
+ * Write prose that may contain `backticked` spans, rendering those as `code`.
+ *
+ * The copy stays readable where it is written, and the page never shows a
+ * stray backtick — which `textContent` alone would.
+ */
+function setProse(node: HTMLElement, text: string): void {
+  node.replaceChildren(
+    ...text.split('`').map((part, index) => {
+      if (index % 2 === 0) return document.createTextNode(part);
+      const code = document.createElement('code');
+      code.textContent = part;
+      return code;
+    }),
+  );
+}
+
 export function startApp(): void {
   const status = element<HTMLElement>('status');
   const mountsSection = element<HTMLElement>('mounts');
@@ -79,7 +96,7 @@ export function startApp(): void {
 
     if (options.detail) {
       const detail = document.createElement('p');
-      detail.textContent = options.detail;
+      setProse(detail, options.detail);
       status.append(detail);
     }
     return status;
@@ -103,7 +120,7 @@ export function startApp(): void {
       path.textContent = note.path;
       const message = document.createElement('span');
       message.className = 'note-message';
-      message.textContent = ` — ${note.message}`;
+      setProse(message, ` — ${note.message}`);
       body.append(path, message);
 
       item.append(kind, body);

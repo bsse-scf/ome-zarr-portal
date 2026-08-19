@@ -15,6 +15,8 @@
         <h1>OME-Zarr Portal</h1>
         <p class="tagline">
           Drop a dataset or a folder of datasets to explore it in the browser.
+        </p>
+        <p class="assurance">
           <strong>Your data stays on your machine</strong> — nothing is uploaded, and no
           server ever sees a byte of it.
         </p>
@@ -23,6 +25,12 @@
       <main>
         <section class="dropzones" aria-label="Drop targets">
           <section class="dropzone" id="dropzone-neuroglancer" data-target="neuroglancer" tabindex="0">
+            <span class="dropzone-icon" aria-hidden="true">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="3.25" y="3.25" width="17.5" height="17.5" rx="2.5" />
+                <path d="M3.25 12h17.5M12 3.25v17.5" />
+              </svg>
+            </span>
             <h2>Visualize</h2>
             <p class="dropzone-hint">Open in Neuroglancer</p>
             <p class="dropzone-body">
@@ -35,6 +43,14 @@
           </section>
 
           <section class="dropzone" id="dropzone-gallery" data-target="gallery" tabindex="0">
+            <span class="dropzone-icon" aria-hidden="true">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="3.25" y="3.25" width="7.5" height="7.5" rx="1.75" />
+                <rect x="13.25" y="3.25" width="7.5" height="7.5" rx="1.75" />
+                <rect x="3.25" y="13.25" width="7.5" height="7.5" rx="1.75" />
+                <rect x="13.25" y="13.25" width="7.5" height="7.5" rx="1.75" />
+              </svg>
+            </span>
             <h2>Browse</h2>
             <p class="dropzone-hint">Open a Zarrcade gallery</p>
             <p class="dropzone-body">
