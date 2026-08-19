@@ -10,6 +10,11 @@
  * Because this page is served from the portal's own origin, those virtual
  * URLs are same-origin and need no CORS handling and no upstream patch.
  */
+// Upstream's entry point. This is what registers the layer types, the data
+// sources (`zarr://`) and the key-value stores (`http://`) — `setupDefaultViewer`
+// builds the UI but registers none of them. Without this import every source
+// fails with "Unsupported scheme: zarr:".
+import 'neuroglancer';
 import 'neuroglancer/unstable/ui/default_viewer.css';
 import { setupDefaultViewer } from 'neuroglancer/unstable/ui/default_viewer_setup.js';
 

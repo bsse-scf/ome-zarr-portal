@@ -37,9 +37,13 @@ Worker.
 ```bash
 npm install     # also vendors the prebuilt Zarrcade SPA into public/zarrcade/
 npm run dev     # http://localhost:5173
-npm test        # discovery, HTTP serving and integration contracts
-npm run build   # -> dist/
+npm test          # discovery, HTTP serving and integration contracts (Node)
+npm run test:browser  # end-to-end in real Chrome against a production build
+npm run build     # -> dist/
 ```
+
+`test:browser` needs Chrome (`CHROME_PATH` overrides the default
+`/usr/bin/google-chrome`).
 
 Requires a Chromium-based browser (see [Limitations](#limitations)).
 
@@ -173,8 +177,16 @@ have a supported extension point that fits.
 
 Bundled from the `neuroglancer` npm package (2.41.2) with Vite as a second page
 in the multi-page build (`neuroglancer/index.html`, `src/neuroglancer/main.ts`).
-The entry point is 12 lines: import the stock CSS, call the stock
-`setupDefaultViewer()`.
+The entry point is a handful of lines: import the package entry point and the
+stock CSS, then call the stock `setupDefaultViewer()`.
+
+Importing the package entry point (`import 'neuroglancer'`, i.e. upstream's
+`main_module.js`) is **required and easy to miss**. `setupDefaultViewer()`
+builds the UI but registers nothing; the entry point is what pulls in
+`enabled_frontend_modules.js` for layers, data sources and key-value stores.
+Without it every source fails with `Unsupported scheme: zarr:`, and the bundle
+is roughly 900 kB instead of 1.5 MB. `tests/browser/run.mjs` guards against
+this specific regression.
 
 The package builds under Vite as-is — its sources already use Vite's `?raw`
 asset imports and `new URL(…, import.meta.url)` module workers, and its WASM
@@ -304,12 +316,20 @@ src/
     idb.ts, protocol.ts     storage and the page/worker contract
   discovery/                OME-Zarr discovery
   integrations/             Neuroglancer state, Zarrcade config + catalog
-tests/                      run with `npm test`
+tests/                      unit tests (`npm test`)
+tests/browser/              end-to-end in Chrome (`npm run test:browser`)
 ```
 
-Tests run in Node against a `FileSystemDirectoryHandle` adapter backed by
+Unit tests run in Node against a `FileSystemDirectoryHandle` adapter backed by
 `node:fs` (`tests/node-handles.ts`) and real on-disk OME-Zarr fixtures, which
 covers discovery and the HTTP layer without a browser.
+
+The browser tests drive real Chrome against a production build served from a
+subpath, so they also cover the GitHub Pages deployment shape. They build an
+OME-Zarr in **OPFS** and register it as a mount: an OPFS handle is an ordinary
+`FileSystemDirectoryHandle`, so the worker, Neuroglancer and Zarrcade all
+exercise the real path. What they cannot cover is the drag-and-drop handle
+acquisition itself, which needs a human — see [Limitations](#limitations).
 
 ## Licensing
 
