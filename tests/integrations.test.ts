@@ -59,7 +59,9 @@ describe('Neuroglancer state', () => {
       state.layers[0].source,
       'zarr://https://example.test/portal/_local/m1/img.ome.zarr/',
     );
-    assert.deepEqual(state.selectedLayer, { visible: true, layer: 'img' });
+    // Selected, but with its side panel closed: the viewer opens on the image
+    // rather than on a panel of shader controls.
+    assert.deepEqual(state.selectedLayer, { visible: false, layer: 'img' });
   });
 
   it('disambiguates layers that share a folder name', () => {

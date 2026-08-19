@@ -87,7 +87,11 @@ export function buildNeuroglancerState(datasets: DiscoveredDataset[]): Neuroglan
 
   return {
     layers,
-    ...(layers.length > 0 ? { selectedLayer: { visible: true, layer: layers[0].name } } : {}),
+    // The first layer is selected but its side panel stays closed: opening it
+    // would cover a third of the window with shader controls before the user
+    // has seen the image. Selecting it anyway means the panel shows that layer
+    // when the user does open it.
+    ...(layers.length > 0 ? { selectedLayer: { visible: false, layer: layers[0].name } } : {}),
     layout: chooseLayout(datasets),
   };
 }

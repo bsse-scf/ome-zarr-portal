@@ -209,7 +209,8 @@ try {
   async function openInNeuroglancer(sourceUrl, layerName, layout) {
     const state = {
       layers: [{ type: 'auto', name: layerName, source: `zarr://${sourceUrl}` }],
-      selectedLayer: { visible: true, layer: layerName },
+      // Mirrors what the portal generates: selected, panel closed.
+      selectedLayer: { visible: false, layer: layerName },
       layout,
     };
     const ngPage = await browser.newPage();
@@ -241,6 +242,8 @@ try {
               ok: true,
               sources: managed[0].layer.dataSources?.length ?? 0,
               panels,
+              layerBars: document.querySelectorAll('.neuroglancer-layer-panel').length,
+              sidePanels: document.querySelectorAll('.neuroglancer-layer-side-panel-title').length,
               layout: window.viewer.state.toJSON().layout,
               statusText,
             };
@@ -265,6 +268,23 @@ try {
     const outcome = await openInNeuroglancer(datasetUrl, 'browser_test', '4panel-alt');
     assert(outcome.ok, `Neuroglancer did not load the source: ${outcome.reason}`);
     assert(outcome.sources > 0, 'layer should have a resolved data source');
+  });
+
+  await check('the layer side panel starts closed', async () => {
+    // `selectedLayer.visible` is false in the generated state, so the viewer
+    // opens on the image instead of on a panel of shader controls.
+    const outcome = await openInNeuroglancer(datasetUrl, 'browser_test', '4panel-alt');
+    assert(outcome.ok, `did not load: ${outcome.reason}`);
+    assertEqual(outcome.sidePanels, 0, 'no layer side panel on the right');
+  });
+
+  await check('the layer bar is not shown', async () => {
+    // `showLayerPanel: false` in src/neuroglancer/main.ts. The bar is built
+    // lazily by LayerGroupViewer, so its absence is only observable once a
+    // layer has actually loaded.
+    const outcome = await openInNeuroglancer(datasetUrl, 'browser_test', '4panel-alt');
+    assert(outcome.ok, `did not load: ${outcome.reason}`);
+    assertEqual(outcome.layerBars, 0, 'no layer-name bar above the panels');
   });
 
   await check('volumetric data renders the four orthogonal panels', async () => {

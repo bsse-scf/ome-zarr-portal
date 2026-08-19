@@ -21,6 +21,12 @@ import { setupDefaultViewer } from 'neuroglancer/unstable/ui/default_viewer_setu
 function start(): void {
   setupDefaultViewer({
     target: document.getElementById('neuroglancer-container') ?? undefined,
+    // Hide the layer bar — the row of layer-name tabs above the panels.
+    // The portal decides what is open before the viewer starts, and every
+    // layer is already named by its path in the gallery, so the bar only
+    // repeats that list and takes vertical space from the image. Layers stay
+    // reachable through the layer-list button in the top bar.
+    showLayerPanel: false,
   });
 }
 
