@@ -1,0 +1,321 @@
+# OME-Zarr Portal
+
+A browser-based portal for looking at **local** OME-Zarr data. Drop a dataset —
+or a folder full of them — and open it in either [Neuroglancer][ng] (3-D
+visualization) or a [Zarrcade][zc] gallery (browsing, search, metadata).
+
+Nothing is uploaded. There is no backend. The image data never leaves the
+machine it is already on: the page serves it to itself through a Service
+Worker.
+
+```
+                    Landing page
+                         │
+              ┌──────────┴──────────┐
+              │                     │
+      Neuroglancer drop       Gallery drop
+              │                     │
+              └──────────┬──────────┘
+                         │
+                OME-Zarr discovery          src/discovery/
+                         │
+                filesystem mounts           src/mounts/
+                         │
+                  Service Worker            src/vfs/
+                         │
+                 virtual HTTP URLs
+                  <base>_local/…
+                         │
+              ┌──────────┴──────────┐
+              │                     │
+        Neuroglancer             Zarrcade
+      /neuroglancer/            /zarrcade/
+```
+
+## Quick start
+
+```bash
+npm install     # also vendors the prebuilt Zarrcade SPA into public/zarrcade/
+npm run dev     # http://localhost:5173
+npm test        # discovery, HTTP serving and integration contracts
+npm run build   # -> dist/
+```
+
+Requires a Chromium-based browser (see [Limitations](#limitations)).
+
+## How the virtual filesystem works
+
+The problem: Neuroglancer and Zarrcade both consume OME-Zarr over HTTP. A
+`FileSystemDirectoryHandle` from a drag-and-drop is not HTTP. Copying gigabytes
+into OPFS to bridge the gap is not acceptable.
+
+The solution is a Service Worker that answers HTTP requests by reading the
+handle directly.
+
+### Mounting
+
+Dropping a folder yields a `FileSystemDirectoryHandle` via
+`DataTransferItem.getAsFileSystemHandle()`. The handle is given a random id and
+written to IndexedDB (`src/mounts/registry.ts`).
+
+IndexedDB is the important part: `FileSystemHandle` is structured-cloneable, so
+storing it there hands the *worker* — not the page — the ability to read files.
+That matters because the browser can kill and restart a Service Worker at any
+moment; a handle kept only in worker memory would not survive.
+
+**No file contents are ever stored.** Only the handle, which is a reference.
+
+### Serving
+
+The worker (`src/vfs/sw.ts`) claims the whole site and intercepts two
+namespaces:
+
+```
+GET|HEAD  <base>_local/<mount-id>/<relative-path>    bytes from disk
+GET|HEAD  <base>_session/<session-id>/<name>         a generated document
+```
+
+For example:
+
+```
+/_local/abc123/sample.ome.zarr/zarr.json
+/_local/abc123/sample.ome.zarr/0/zarr.json
+/_local/abc123/sample.ome.zarr/0/c/0/0/0
+```
+
+The HTTP semantics live in `src/vfs/serve.ts`, separate from the worker's event
+wiring so they can be tested outside a browser. Supported:
+
+| Feature | Behaviour |
+| --- | --- |
+| `GET`, `HEAD` | 200 with `Content-Length`; `HEAD` omits the body |
+| Byte ranges | `206 Partial Content` with `Content-Range`; `416` when unsatisfiable |
+| `Accept-Ranges: bytes` | always advertised |
+| Missing file | `404` |
+| Directory | `404` (`X-Local-Error: is-directory`) — Zarr never needs a listing |
+| Other methods | `405` with `Allow: GET, HEAD` |
+| Lost permission | `403` (`X-Local-Error: permission-lost`) |
+| `..` or encoded `/` in a segment | `400`, rejected before touching the filesystem |
+
+Multi-range requests are answered with the full body rather than a
+`multipart/byteranges` response. RFC 9110 permits a server to ignore `Range`,
+and neither viewer needs it.
+
+The worker is **format-agnostic**: it knows nothing about Zarr. That is what
+lets two independent tools share one namespace with no adaptation.
+
+Reading a byte range slices the live `File`, so opening a 200 GB dataset costs
+no disk space and no copy. Intermediate directory handles are cached per mount,
+because a chunked array issues thousands of requests sharing a long path
+prefix.
+
+### The `_session/` namespace
+
+Zarrcade is configured by URL: it fetches a JSON config, which names a CSV
+catalog. The portal generates both in memory and serves them from
+`_session/<id>/`, so Zarrcade can fetch them like any other file. These are
+derived documents, never user data.
+
+## Discovery
+
+`src/discovery/` walks mounted directories and returns a normalized list:
+
+```ts
+interface DiscoveredDataset {
+  id: string;
+  name: string;
+  relativePath: string;
+  virtualUrl: string;
+  omeZarrVersion?: string;
+  // plus context and best-effort metadata: mountId, mountName, zarrFormat,
+  // axes, shape, dtype, scaleCount
+}
+```
+
+Detection is driven by metadata, not by filename: a `.ome.zarr` suffix is a
+convention, not a guarantee, and plenty of valid datasets do not use it. Both
+layouts in current use are handled:
+
+* **Zarr v2 / OME-NGFF ≤ 0.4** — `.zgroup`, `.zarray`, `.zattrs`, with
+  `multiscales` at the top level of `.zattrs`.
+* **Zarr v3 / OME-NGFF ≥ 0.5** — a single `zarr.json` whose `node_type`
+  distinguishes group from array, with `multiscales` under `attributes.ome`.
+
+Two rules keep the walk both correct and cheap:
+
+1. **A group carrying `multiscales` *is* the dataset**, and the walk stops
+   there. This is what prevents the resolution levels beneath it (`0/`, `1/`, …)
+   from being reported as datasets of their own.
+2. **A Zarr array is never descended into.** Its children are chunk files and
+   chunk directories — potentially millions of entries.
+
+Each directory is classified by probing three filenames, which never
+enumerates entries. Enumeration happens only for directories that turn out not
+to be Zarr arrays.
+
+Other cases:
+
+* **A dropped dataset root** is returned as a single dataset (`relativePath: ''`).
+* **HCS plates** are not openable as one image, so the walk continues into them
+  and lists each field of view, with a note saying so.
+* **`bioformats2raw.layout` containers** are walked into, listing each series.
+* **A bare Zarr array** is reported as unsupported when dropped directly, and
+  silently ignored when encountered deeper down.
+* Depth, dataset count, directory count and entries-per-directory are all
+  **bounded**, and hitting a bound produces a visible note rather than a hang.
+
+## Upstream modifications
+
+**None to either project.** This was the goal, and both upstreams turned out to
+have a supported extension point that fits.
+
+### Neuroglancer — unmodified
+
+Bundled from the `neuroglancer` npm package (2.41.2) with Vite as a second page
+in the multi-page build (`neuroglancer/index.html`, `src/neuroglancer/main.ts`).
+The entry point is 12 lines: import the stock CSS, call the stock
+`setupDefaultViewer()`.
+
+The package builds under Vite as-is — its sources already use Vite's `?raw`
+asset imports and `new URL(…, import.meta.url)` module workers, and its WASM
+decoders are emitted as ordinary assets.
+
+Neuroglancer is driven through its own `#!{…}` state fragment, the
+upstream-supported way to open a viewer on a given set of sources. The portal
+builds one `zarr://` layer per discovered dataset with `type: "auto"`, which
+lets Neuroglancer decide from the OME-NGFF metadata whether a dataset is an
+image or a segmentation.
+
+Nothing needed patching because the virtual URLs are same-origin, ordinary
+HTTP. Neuroglancer's `zarr://` source sits on its HTTP key-value store, which
+needs exactly what the worker provides: `GET`, `HEAD`, byte ranges and honest
+404s.
+
+### Zarrcade — unmodified, configured
+
+Zarrcade v3 (`@janelia/zarrcade`) is a static, config-driven React SPA. Its
+prebuilt `dist/` is vendored into `public/zarrcade/` by
+`scripts/vendor-zarrcade.mjs` and served at `<base>zarrcade/`. It is built with
+a relative base, so it runs from a subpath unchanged.
+
+Its documented extension point — `?config=<url>` → a JSON config → a CSV
+catalog — is exactly the hook needed. Instead of the usual pre-generated static
+catalog, the portal generates both documents from the discovered datasets at
+drop time and serves them from `_session/` (`src/integrations/zarrcade.ts`).
+
+The one substantive difference from a normal Zarrcade deployment is the
+**viewer list**. Zarrcade ships with external viewers — the public Neuroglancer
+demo, Avivator, the OME-NGFF validator — and none of them can reach a `_local/`
+URL that exists only inside this browser. The generated config replaces them
+with the Neuroglancer bundled alongside the portal. This is configuration, not
+a patch.
+
+The only file dropped when vendoring is Zarrcade's stock `config.json`, so that
+a bare visit to `/zarrcade/` shows its own Welcome screen rather than a
+misconfigured gallery.
+
+Consequences worth knowing:
+
+* Zarrcade renders thumbnails client-side via the [zarr thumbnails
+  convention][thumb], reading `zarr.json` → `attributes.thumbnails`. Datasets
+  without that convention (including all Zarr v2 ones) show the placeholder
+  icon. This is upstream behaviour, working normally.
+* Zarrcade derives the Neuroglancer layer name from the URL basename with only
+  `.zarr` stripped, so a `sample.ome.zarr` opened from the gallery is labelled
+  `sample.ome`. Opening the same dataset from the landing page gives `sample`.
+
+## Deploying to GitHub Pages
+
+`.github/workflows/deploy.yml` builds and publishes `dist/` on every push to
+`main`. Enable Pages for the repository with **Source: GitHub Actions**.
+
+The build uses a **relative base** (`base: './'`), so one build works at an
+origin root *and* at a project subpath like
+`https://<user>.github.io/<repo>/` — nothing needs to know the repository name.
+
+A Service Worker can only claim a scope at or below its own path, so at a
+subpath the namespace is `/<repo>/_local/…`, not `/_local/…`. Both sides derive
+the base at runtime rather than baking it in: the worker from
+`registration.scope`, the page from the same scope once registered. The worker
+is registered relative to the landing page, which resolves correctly in both
+deployments.
+
+In development a small Vite middleware serves the worker at `/sw.js` with a
+`Service-Worker-Allowed` header, so the registration code is identical in both
+modes.
+
+GitHub Pages serves over HTTPS, which the File System Access API and Service
+Workers both require.
+
+## Limitations
+
+**Chromium only.** The portal needs `DataTransferItem.getAsFileSystemHandle()`,
+which today means Chrome, Edge or another Chromium browser. Firefox and Safari
+support the older `webkitGetAsEntry()`, but it yields `FileSystemEntry` objects
+that cannot be structured-cloned into a Service Worker — which is the entire
+basis of this design. The landing page detects this and says so.
+
+**Secure context required.** Service Workers need `https://` or
+`http://localhost`.
+
+**Mounts do not survive a reload.** Handles persist in IndexedDB, but their
+permission grant does not, and re-granting requires a user gesture. On startup
+the portal checks each stored mount and forgets any it can no longer read, so
+you get a clear "drop it again" rather than a wall of 403s. This matches the
+MVP constraint that session-local access is sufficient.
+
+**Same-origin exposure.** While a folder is mounted, any script running on this
+origin can read every file under it through `_local/`. Mount ids are random and
+unguessable, which prevents *guessing* a namespace, but it is not a security
+boundary against code already running on the page. Only mount folders you are
+willing to expose to this origin, and use "Unmount all" when finished.
+
+**Read-only.** No writes, ever. The worker rejects everything but `GET` and
+`HEAD`.
+
+**No directory listings.** `_local/` exposes files only; a directory request
+returns 404. Zarr does not need listings, but a tool that relies on them would
+not work here.
+
+**External viewers cannot be used.** Avivator, the OME-NGFF validator and
+similar hosted tools cannot fetch a URL that only resolves inside this browser
+profile. Only same-origin viewers work, which is why both are bundled.
+
+**Large plates are capped.** Discovery stops after 1000 datasets (and other
+bounds) and reports that it did.
+
+**Cache invalidation is coarse.** Directory handles are cached until a mount is
+removed, so restructuring a folder on disk mid-session may need a reload.
+
+## Layout
+
+```
+index.html                  landing page
+neuroglancer/index.html     bundled Neuroglancer
+public/zarrcade/            vendored Zarrcade SPA (gitignored; see scripts/)
+src/
+  main.ts                   entry
+  ui/                       landing-page UX
+  mounts/                   drag-and-drop -> handles -> mounts
+  vfs/
+    sw.ts                   Service Worker: lifecycle, storage, handle cache
+    serve.ts                HTTP semantics (paths, ranges, status codes)
+    client.ts               registration, base-path derivation, session docs
+    idb.ts, protocol.ts     storage and the page/worker contract
+  discovery/                OME-Zarr discovery
+  integrations/             Neuroglancer state, Zarrcade config + catalog
+tests/                      run with `npm test`
+```
+
+Tests run in Node against a `FileSystemDirectoryHandle` adapter backed by
+`node:fs` (`tests/node-handles.ts`) and real on-disk OME-Zarr fixtures, which
+covers discovery and the HTTP layer without a browser.
+
+## Licensing
+
+This portal is a thin integration layer. Neuroglancer is Apache-2.0, Zarrcade is
+BSD-3-Clause; both are consumed as unmodified published packages.
+
+[ng]: https://github.com/google/neuroglancer
+[zc]: https://github.com/JaneliaSciComp/zarrcade
+[thumb]: https://github.com/clbarnes/zarr-convention-thumbnails

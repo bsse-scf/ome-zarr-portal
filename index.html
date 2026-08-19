@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OME-Zarr Portal</title>
+    <meta
+      name="description"
+      content="View local OME-Zarr datasets in Neuroglancer and Zarrcade. Nothing is uploaded."
+    />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <h1>OME-Zarr Portal</h1>
+        <p class="tagline">
+          Drop a dataset or a folder of datasets to explore it in the browser.
+          <strong>Your data stays on your machine</strong> — nothing is uploaded, and no
+          server ever sees a byte of it.
+        </p>
+      </header>
+
+      <main>
+        <section class="dropzones" aria-label="Drop targets">
+          <section class="dropzone" id="dropzone-neuroglancer" data-target="neuroglancer" tabindex="0">
+            <h2>Visualize</h2>
+            <p class="dropzone-hint">Open in Neuroglancer</p>
+            <p class="dropzone-body">
+              Drop one OME-Zarr dataset to view it, or a folder of datasets to load
+              each one as its own layer.
+            </p>
+            <button type="button" class="browse" data-target="neuroglancer">
+              Choose a folder…
+            </button>
+          </section>
+
+          <section class="dropzone" id="dropzone-gallery" data-target="gallery" tabindex="0">
+            <h2>Browse</h2>
+            <p class="dropzone-hint">Open a Zarrcade gallery</p>
+            <p class="dropzone-body">
+              Drop a folder to get a searchable gallery of every dataset inside it,
+              with metadata and links into the viewer.
+            </p>
+            <button type="button" class="browse" data-target="gallery">
+              Choose a folder…
+            </button>
+          </section>
+        </section>
+
+        <section id="status" class="status" aria-live="polite" hidden></section>
+
+        <section id="mounts" class="mounts" hidden>
+          <h2>Mounted folders</h2>
+          <ul id="mount-list"></ul>
+          <button type="button" id="unmount-all" class="link-button">Unmount all</button>
+        </section>
+      </main>
+
+      <footer class="colophon">
+        <p>
+          Built on <a href="https://github.com/google/neuroglancer">Neuroglancer</a> and
+          <a href="https://github.com/JaneliaSciComp/zarrcade">Zarrcade</a>, both served
+          from this origin. Local files are exposed to them through a Service Worker at
+          <code id="namespace-example">_local/…</code>.
+        </p>
+      </footer>
+    </div>
+
+    <div class="viewer" id="viewer" hidden>
+      <div class="viewer-bar">
+        <button type="button" id="viewer-back">&larr; Back</button>
+        <span id="viewer-title" class="viewer-title"></span>
+        <a id="viewer-open" href="#" target="_blank" rel="noopener">Open in a new tab</a>
+      </div>
+      <iframe
+        id="viewer-frame"
+        class="viewer-frame"
+        title="Viewer"
+        allow="cross-origin-isolated"
+      ></iframe>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

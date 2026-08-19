@@ -1,0 +1,24 @@
+{
+  "name": "ome-zarr-portal",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Browser-based portal for viewing local OME-Zarr datasets in Neuroglancer and Zarrcade, with no upload and no backend.",
+  "scripts": {
+    "vendor": "node scripts/vendor-zarrcade.mjs",
+    "dev": "npm run vendor && vite",
+    "build": "npm run vendor && tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "node scripts/run-tests.mjs"
+  },
+  "dependencies": {
+    "neuroglancer": "2.41.2"
+  },
+  "devDependencies": {
+    "@janelia/zarrcade": "3.0.0",
+    "@types/node": "^26.2.0",
+    "typescript": "~5.6.3",
+    "vite": "^6.0.11"
+  }
+}

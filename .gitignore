@@ -1,0 +1,6 @@
+node_modules/
+dist/
+public/zarrcade/
+.test-build/
+*.local
+.DS_Store
