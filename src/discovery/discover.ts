@@ -16,7 +16,7 @@
  */
 import type { Mount } from '../mounts/registry';
 import { localUrl } from '../vfs/client';
-import { isPreviewable, spatialAxes } from '../preview/policy';
+import { axisRoles, isPreviewable } from '../preview/policy';
 import {
   hasThumbnailsConvention,
   isBioformats2RawLayout,
@@ -123,10 +123,10 @@ async function checkPreviewable(
   const coarsest = multiscale.paths[multiscale.paths.length - 1];
   if (!coarsest) return false;
 
-  const { shape } = await readLevelInfo(directory, coarsest, format);
+  const { shape, dtype } = await readLevelInfo(directory, coarsest, format);
   if (!shape || shape.length < 2) return false;
 
-  return isPreviewable(shape, spatialAxes(multiscale.axes, shape.length));
+  return isPreviewable(shape, axisRoles(multiscale.axes, shape.length), dtype);
 }
 
 async function recordDataset(

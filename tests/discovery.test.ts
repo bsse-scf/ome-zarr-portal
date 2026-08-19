@@ -42,6 +42,7 @@ describe('OME-Zarr discovery', () => {
         'nested/deeper/v3-image.ome.zarr',
         'plate.ome.zarr/A/1/0',
         'thumbed.ome.zarr',
+        'time-series.ome.zarr',
         'v2-image.ome.zarr',
       ],
     );
@@ -148,10 +149,17 @@ describe('OME-Zarr discovery', () => {
   });
 
   it('refuses a preview when the coarsest level is still huge', () => {
-    // 8192 x 8192 exceeds both the element budget and the extent cap, and the
-    // judgement is made from metadata alone — no chunk is read.
+    // 8192 x 8192 uint16 exceeds both the byte budget and the extent cap, and
+    // the judgement is made from metadata alone — no chunk is read.
     const dataset = byName(result, 'big-pyramid');
     assert.equal(dataset.previewable, false);
+  });
+
+  it('judges a time series by one timepoint, not by the whole series', () => {
+    // 200 x 3 x 256 x 256 uint16 is 78 MB in total but 384 KB per timepoint,
+    // and only the first timepoint is ever read.
+    const dataset = byName(result, 'time-series');
+    assert.equal(dataset.previewable, true);
   });
 
   it('defers to a dataset that ships its own thumbnails', () => {
@@ -177,7 +185,7 @@ describe('OME-Zarr discovery', () => {
     });
     assert.deepEqual(
       shallow.datasets.map((dataset) => dataset.relativePath).sort(),
-      ['big-pyramid.ome.zarr', 'thumbed.ome.zarr', 'v2-image.ome.zarr'],
+      ['big-pyramid.ome.zarr', 'thumbed.ome.zarr', 'time-series.ome.zarr', 'v2-image.ome.zarr'],
     );
     assert.ok(shallow.notes.some((note) => note.kind === 'limit'));
   });

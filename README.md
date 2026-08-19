@@ -131,16 +131,35 @@ Gallery cards show an image without any precomputation step. The rule:
    array metadata alone — no data is read — so an oversized dataset simply gets
    no preview and falls back to the placeholder icon.
 
-The bounds live in `src/preview/policy.ts`: the coarsest level must be at most
-1024 × 1024 elements in total, with neither spatial extent above 4096. A
-well-formed pyramid bottoms out well inside that; a dataset whose smallest
-level is still enormous is exactly the one to skip.
+The bounds live in `src/preview/policy.ts`: at most 10 MB read, with neither
+spatial extent above 4096. The budget is in bytes rather than elements because
+the same shape costs eight times as much in `float64` as in `uint8`, and it is
+measured on what is actually read rather than on the level as a whole — a
+1,000-timepoint series is judged by one timepoint. A well-formed pyramid
+bottoms out well inside that; a dataset whose smallest level is still enormous
+is exactly the one to skip.
 
-The projection takes the maximum over every axis that is not `y` or `x`, so
-time, channel and depth all collapse by one uniform rule, and indexing follows
-the strides the reader reports rather than assuming `tczyx` order. Contrast is
-stretched to the 1st–99th percentile via a histogram, because a single hot
-pixel would otherwise wash out a min/max scaling.
+Not every axis is treated alike:
+
+- **Time**: only the first timepoint is read. A time series is a sequence of
+  images, not one image; projecting across it smears every frame together and
+  multiplies the read by the length of the series.
+- **Channel**: each channel is projected separately, then tinted and added to
+  the others — the composite view every microscopy tool shows. A maximum across
+  channels would show only the brightest, and side-by-side panels are
+  unreadable at card size. Each channel is stretched on its own range, since
+  intensities routinely differ by orders of magnitude between stains. The
+  palette leads with green and magenta, which stay legible to colour-blind
+  viewers; it holds eight colours and channels past it are dropped, an additive
+  blend of more than a handful being mud. A single channel stays grey.
+- **Depth and anything else**: collapsed by taking the maximum.
+
+Axis roles come from the declared `axes` names; a rank-5 array that declares
+none is read as `tczyx`, which the pre-0.4 spec fixed, and anything else falls
+back to "the last two dimensions are `y` and `x`". Indexing follows the strides
+the reader reports rather than assuming an axis order. Contrast is stretched to
+the 1st–99th percentile via a histogram, because a single hot pixel would
+otherwise wash out a min/max scaling.
 
 Previews are served from a third namespace:
 

@@ -346,6 +346,55 @@ try {
     assert(result.max > result.min, 'blosc chunk decoded to real data');
   });
 
+  /** Fetch a preview and return its size plus every pixel's RGB. */
+  async function fetchPreviewPixels(dataset) {
+    return page.evaluate(async (url) => {
+      const response = await fetch(url);
+      if (!response.ok) {
+        return { status: response.status, error: response.headers.get('X-Local-Error') };
+      }
+      const bitmap = await createImageBitmap(await response.blob());
+      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(bitmap, 0, 0);
+      const { data } = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+      return { status: response.status, width: bitmap.width, height: bitmap.height, data: [...data] };
+    }, previewUrl(dataset));
+  }
+
+  await check('preview overlays channels in colour, from the first timepoint', async () => {
+    const result = await fetchPreviewPixels('series_test.ome.zarr');
+    assertEqual(result.status, 200, `expected a preview, got ${result.error ?? result.status}`);
+    // A composite is one image the size of the projection, not a montage.
+    assertEqual(result.width, 16, 'composite width');
+    assertEqual(result.height, 16, 'composite height');
+
+    const rgb = (x, y) => {
+      const offset = (y * result.width + x) * 4;
+      return { r: result.data[offset], g: result.data[offset + 1], b: result.data[offset + 2] };
+    };
+    const origin = rgb(1, 1);
+    const right = rgb(14, 1);
+    const down = rgb(1, 14);
+
+    // Channel 0 is tinted green and ramps along x; channel 2 is tinted cyan
+    // and ramps along y. Blue comes only from the cyan channel here, so the
+    // two gradients stay separable: blue must follow y and ignore x, while
+    // green follows x. Both gradients exist only if the renderer read
+    // timepoint 0 — timepoint 1 is saturated everywhere, and a projection
+    // across time would be flat — and projected through z, whose first slice
+    // is empty.
+    assert(right.g > origin.g + 50, 'green channel ramps along x');
+    assert(down.b > origin.b + 50, 'cyan channel ramps along y');
+    assert(Math.abs(right.b - origin.b) <= 1, 'cyan channel does not follow x');
+
+    // Channel 1 is constant and tinted magenta: it is the only source of red,
+    // and it contributes the same red to every pixel.
+    assert(origin.r > 0, 'flat channel is visible at all');
+    assert(Math.abs(right.r - origin.r) <= 1, 'flat channel contributes evenly');
+    assert(Math.abs(down.r - origin.r) <= 1, 'flat channel contributes evenly');
+  });
+
   await check('preview 404s for an unknown dataset so the gallery falls back', async () => {
     const result = await fetchPreview('not-a-dataset');
     assertEqual(result.status, 404, 'missing dataset');

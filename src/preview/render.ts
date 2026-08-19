@@ -7,6 +7,14 @@
  * cached on disk, or generated ahead of time — the image is built when the
  * browser asks for it and thrown away after.
  *
+ * Two axes are treated as more than something to collapse. Only the first
+ * timepoint is read, because a time series is a sequence of images rather than
+ * one image, and projecting across it would both smear every frame together
+ * and multiply the read by the length of the series. Channels are projected
+ * separately and then overlaid in colour, the usual composite view: they are
+ * different stains of the same field, and a maximum across them would show
+ * only the brightest one.
+ *
  * Runs in a dedicated worker rather than the service worker, deliberately. A
  * service worker cannot use dynamic `import()`, so zarrita's WASM codecs would
  * have to be bundled into it eagerly — measured at 1.4 MB, which every visitor
@@ -23,12 +31,35 @@ import * as zarr from 'zarrita';
 
 import { readMultiscale, readZarrNode } from '../discovery/zarr-metadata';
 import {
+  axisRoles,
   isPreviewable,
   PREVIEW_OUTPUT_EDGE,
-  spatialAxes,
+  type AxisRoles,
 } from './policy';
 import { DirectoryHandleStore } from './store';
 
+
+/**
+ * Colour per channel, in the order channels appear.
+ *
+ * Green and magenta lead because a two-channel overlay is the common case and
+ * that pair stays legible to colour-blind viewers, unlike the red/green it
+ * replaces. The list also sets the cap: channels past its end are dropped,
+ * since an additive blend of more than a handful of colours is mud.
+ */
+const CHANNEL_COLORS: ReadonlyArray<readonly [number, number, number]> = [
+  [0, 255, 0],
+  [255, 0, 255],
+  [0, 255, 255],
+  [255, 255, 0],
+  [255, 128, 0],
+  [0, 128, 255],
+  [255, 0, 0],
+  [128, 255, 0],
+];
+
+/** A lone channel is shown as grey, not tinted; there is nothing to tell apart. */
+const MONOCHROME: readonly [number, number, number] = [255, 255, 255];
 
 /** Dtypes that cannot be projected to an intensity image. */
 function isNumericDtype(dtype: string): boolean {
@@ -56,11 +87,47 @@ interface Projection {
 }
 
 /**
- * Maximum-intensity projection onto the two spatial axes.
+ * Read the data a preview is built from.
  *
- * Every other axis — time, channel, depth — is collapsed by taking the
- * maximum, which is one uniform rule that gives a recognisable image for
- * volumes, multi-channel stacks and time series alike.
+ * The whole level, except that a time axis is pinned to its first index —
+ * indexing with a plain integer drops that axis, so what comes back is one
+ * timepoint and the roles are renumbered to match.
+ */
+async function readPreviewRegion(
+  array: zarr.Array<zarr.DataType, never>,
+  roles: AxisRoles,
+): Promise<{ region: zarr.Chunk<zarr.DataType>; roles: AxisRoles }> {
+  if (roles.t === undefined) {
+    return { region: await zarr.get(array as never), roles };
+  }
+
+  const time = roles.t;
+  const selection = new Array<number | null>(array.shape.length).fill(null);
+  selection[time] = 0;
+  const region = (await zarr.get(
+    array as never,
+    selection as never,
+  )) as zarr.Chunk<zarr.DataType>;
+
+  const shift = (axis: number) => (axis > time ? axis - 1 : axis);
+  return {
+    region,
+    roles: {
+      y: shift(roles.y),
+      x: shift(roles.x),
+      c: roles.c === undefined ? undefined : shift(roles.c),
+    },
+  };
+}
+
+/**
+ * Maximum-intensity projection onto the two spatial axes, one plane per
+ * channel.
+ *
+ * Every other axis — depth above all — is collapsed by taking the maximum,
+ * which is one uniform rule that gives a recognisable image for volumes and
+ * flat images alike. Channels are kept apart: each gets its own plane, so they
+ * can be tinted and overlaid rather than merged into whichever is brightest.
  *
  * Indexing goes through the strides zarrita reports rather than assuming C
  * order with `y`,`x` last, so an unusual axis order still projects correctly.
@@ -69,26 +136,36 @@ function project(
   data: ArrayLike<number | bigint | boolean>,
   shape: number[],
   stride: number[],
-  yx: [number, number],
-): Projection {
-  const [yAxis, xAxis] = yx;
+  roles: AxisRoles,
+): Projection[] {
+  const { y: yAxis, x: xAxis, c: cAxis } = roles;
   const height = shape[yAxis];
   const width = shape[xAxis];
 
-  const plane = new Float64Array(height * width).fill(Number.NEGATIVE_INFINITY);
+  const channels =
+    cAxis === undefined ? 1 : Math.min(shape[cAxis], CHANNEL_COLORS.length);
+  const planes = Array.from({ length: channels }, () =>
+    new Float64Array(height * width).fill(Number.NEGATIVE_INFINITY),
+  );
+
   const rank = shape.length;
   const index = new Array<number>(rank).fill(0);
   const total = shape.reduce((product, extent) => product * extent, 1);
 
   for (let n = 0; n < total; n += 1) {
-    let offset = 0;
-    for (let axis = 0; axis < rank; axis += 1) offset += index[axis] * stride[axis];
+    // Channels past the cap are read but not drawn.
+    const channel = cAxis === undefined ? 0 : index[cAxis];
+    if (channel < channels) {
+      let offset = 0;
+      for (let axis = 0; axis < rank; axis += 1) offset += index[axis] * stride[axis];
 
-    const raw = data[offset];
-    const value = typeof raw === 'bigint' ? Number(raw) : Number(raw);
-    if (Number.isFinite(value)) {
-      const pixel = index[yAxis] * width + index[xAxis];
-      if (value > plane[pixel]) plane[pixel] = value;
+      const raw = data[offset];
+      const value = typeof raw === 'bigint' ? Number(raw) : Number(raw);
+      if (Number.isFinite(value)) {
+        const plane = planes[channel];
+        const pixel = index[yAxis] * width + index[xAxis];
+        if (value > plane[pixel]) plane[pixel] = value;
+      }
     }
 
     // Odometer increment over the remaining axes.
@@ -98,7 +175,7 @@ function project(
     }
   }
 
-  return { plane, height, width };
+  return planes.map((plane) => ({ plane, height, width }));
 }
 
 /**
@@ -151,24 +228,38 @@ function displayRange(plane: Float64Array): [number, number] {
   return high > low ? [low, high] : [min, max];
 }
 
-function toImageData({ plane, height, width }: Projection): ImageData {
-  const [low, high] = displayRange(plane);
-  const span = high - low;
+/**
+ * Blend the channel planes into one image.
+ *
+ * Each channel is stretched on its own range — intensities routinely differ by
+ * orders of magnitude between stains, and a shared range would leave the dim
+ * ones black — then tinted and added to the others, which is the composite
+ * every microscopy viewer shows. `Uint8ClampedArray` saturates on overflow, so
+ * co-located signal goes white rather than wrapping around.
+ */
+function toImageData(planes: Projection[]): ImageData {
+  const { height, width } = planes[0];
   const pixels = new Uint8ClampedArray(width * height * 4);
+  for (let alpha = 3; alpha < pixels.length; alpha += 4) pixels[alpha] = 255;
 
-  for (let i = 0; i < plane.length; i += 1) {
-    const value = plane[i];
-    let level = 0;
-    if (Number.isFinite(value)) {
-      level = span > 0 ? ((value - low) / span) * 255 : 128;
+  planes.forEach((channel, index) => {
+    const [red, green, blue] =
+      planes.length === 1 ? MONOCHROME : CHANNEL_COLORS[index];
+    const [low, high] = displayRange(channel.plane);
+    const span = high - low;
+
+    for (let pixel = 0; pixel < channel.plane.length; pixel += 1) {
+      const value = channel.plane[pixel];
+      let level = 0;
+      if (Number.isFinite(value)) level = span > 0 ? (value - low) / span : 0.5;
+      const scaled = level < 0 ? 0 : level > 1 ? 1 : level;
+
+      const offset = pixel * 4;
+      pixels[offset] += scaled * red;
+      pixels[offset + 1] += scaled * green;
+      pixels[offset + 2] += scaled * blue;
     }
-    const clamped = level < 0 ? 0 : level > 255 ? 255 : level;
-    const offset = i * 4;
-    pixels[offset] = clamped;
-    pixels[offset + 1] = clamped;
-    pixels[offset + 2] = clamped;
-    pixels[offset + 3] = 255;
-  }
+  });
 
   return new ImageData(pixels, width, height);
 }
@@ -238,23 +329,24 @@ export async function renderPreview(
     kind: 'array',
   });
 
-  if (!isNumericDtype(String(array.dtype))) {
-    throw new PreviewUnavailableError(`Cannot preview dtype ${String(array.dtype)}`);
+  const dtype = String(array.dtype);
+  if (!isNumericDtype(dtype)) {
+    throw new PreviewUnavailableError(`Cannot preview dtype ${dtype}`);
   }
 
   const shape = [...array.shape];
-  const yx = spatialAxes(multiscale.axes, shape.length);
-  if (!isPreviewable(shape, yx)) {
+  const roles = axisRoles(multiscale.axes, shape.length);
+  if (!isPreviewable(shape, roles, dtype)) {
     throw new PreviewUnavailableError('Coarsest level is too large to project');
   }
 
-  const region = await zarr.get(array as never);
-  const projection = project(
+  const { region, roles: regionRoles } = await readPreviewRegion(array, roles);
+  const planes = project(
     region.data as ArrayLike<number | bigint | boolean>,
     [...region.shape],
     [...region.stride],
-    yx,
+    regionRoles,
   );
 
-  return encodePng(toImageData(projection));
+  return encodePng(toImageData(planes));
 }

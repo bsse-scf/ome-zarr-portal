@@ -165,6 +165,36 @@ export async function makeFixture(): Promise<Fixture> {
     filters: null,
   });
 
+  // A long time series whose coarsest level is huge in total but tiny per
+  // timepoint. Only the first timepoint is ever read, so this is previewable
+  // and the summed size must not be what decides it.
+  const series = join(root, 'time-series.ome.zarr');
+  await writeJson(join(series, '.zgroup'), { zarr_format: 2 });
+  await writeJson(join(series, '.zattrs'), {
+    multiscales: [
+      {
+        version: '0.4',
+        axes: [
+          { name: 't', type: 'time' },
+          { name: 'c', type: 'channel' },
+          { name: 'y', type: 'space' },
+          { name: 'x', type: 'space' },
+        ],
+        datasets: [{ path: '0' }],
+      },
+    ],
+  });
+  await writeJson(join(series, '0', '.zarray'), {
+    zarr_format: 2,
+    shape: [200, 3, 256, 256],
+    chunks: [1, 1, 256, 256],
+    dtype: '<u2',
+    compressor: null,
+    fill_value: 0,
+    order: 'C',
+    filters: null,
+  });
+
   // A dataset that ships its own thumbnails via the zarr convention.
   const thumbed = join(root, 'thumbed.ome.zarr');
   await writeJson(join(thumbed, 'zarr.json'), {
