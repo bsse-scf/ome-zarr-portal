@@ -131,7 +131,7 @@ Gallery cards show an image without any precomputation step. The rule:
    array metadata alone — no data is read — so an oversized dataset simply gets
    no preview and falls back to the placeholder icon.
 
-The bounds live in `src/preview/policy.ts`: at most 10 MB read, with neither
+The bounds live in `src/preview/policy.ts`: at most 50 MB read, with neither
 spatial extent above 4096. The budget is in bytes rather than elements because
 the same shape costs eight times as much in `float64` as in `uint8`, and it is
 measured on what is actually read rather than on the level as a whole — a

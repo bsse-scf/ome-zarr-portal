@@ -64,7 +64,7 @@ describe('preview eligibility', () => {
 
   it('takes the dtype into account, not just the element count', () => {
     // Same shape, four times the bytes: one fits the budget and one does not.
-    const shape = [1, 1, 1, 2048, 2048];
+    const shape = [1, 1, 1, 4096, 4096];
     assert.equal(isPreviewable(shape, roles, 'uint8'), true);
     assert.equal(isPreviewable(shape, roles, 'float32'), false);
   });
