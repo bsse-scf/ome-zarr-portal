@@ -19,7 +19,7 @@
  * first timepoint is fetched, so a long time series is judged by the size of
  * one timepoint rather than the sum of all of them.
  */
-export const MAX_PREVIEW_BYTES = 50 * 1024 * 1024;
+export const MAX_PREVIEW_BYTES = 200 * 1024 * 1024;
 
 /**
  * Upper bound on either spatial extent. Byte count already bounds the read;
