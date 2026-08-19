@@ -14,15 +14,17 @@
  * the Neuroglancer bundled alongside the portal.
  */
 import type { DiscoveredDataset } from '../discovery/types';
-import { putSessionFile, pruneSessions, siteUrl } from '../vfs/client';
+import { previewUrl, putSessionFile, pruneSessions, siteUrl } from '../vfs/client';
 import { neuroglancerUrlTemplate } from './neuroglancer';
 
 const PATH_COLUMN = 'path';
+const THUMBNAIL_COLUMN = 'thumbnail';
 
 /** Column order in the generated catalog; `path` is the URL Zarrcade opens. */
 const COLUMNS = [
   'Name',
   PATH_COLUMN,
+  THUMBNAIL_COLUMN,
   'Folder',
   'Location',
   'NGFF Version',
@@ -37,10 +39,27 @@ function csvEscape(value: string): string {
   return /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
 
+/**
+ * Choose what fills a row's thumbnail cell.
+ *
+ * Empty is meaningful: with no CSV thumbnail, Zarrcade falls back to its own
+ * zarr thumbnails convention lookup, and then to a placeholder icon. So a
+ * dataset that ships real thumbnails is left empty on purpose — upstream reads
+ * them directly and picks the best-sized entry, which beats anything we could
+ * substitute. Only when there is no thumbnail do we point at a generated
+ * projection, and only when one can actually be produced.
+ */
+function thumbnailCell(dataset: DiscoveredDataset): string {
+  if (dataset.hasConventionThumbnail) return '';
+  if (!dataset.previewable) return '';
+  return previewUrl(dataset.mountId, dataset.relativePath);
+}
+
 function row(dataset: DiscoveredDataset): string[] {
   return [
     dataset.name,
     dataset.virtualUrl,
+    thumbnailCell(dataset),
     dataset.mountName,
     dataset.relativePath || '.',
     dataset.omeZarrVersion ?? 'unknown',
@@ -68,12 +87,16 @@ export function buildZarrcadeConfig(
   return {
     title,
     dataUrl: catalogUrl,
-    data: { delimiter: ',', pathColumn: PATH_COLUMN },
+    data: {
+      delimiter: ',',
+      pathColumn: PATH_COLUMN,
+      thumbnailColumn: THUMBNAIL_COLUMN,
+    },
     display: {
       titleColumn: 'Name',
-      // The virtual URL is an implementation detail; the gallery shows
-      // `Folder` and `Location` instead, which mean something to the user.
-      hideColumns: [PATH_COLUMN],
+      // Both URLs are implementation detail; the gallery shows `Folder` and
+      // `Location` instead, which mean something to the user.
+      hideColumns: [PATH_COLUMN, THUMBNAIL_COLUMN],
       pageSize: 50,
     },
     filters: [

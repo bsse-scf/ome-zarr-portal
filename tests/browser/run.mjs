@@ -16,6 +16,15 @@ import puppeteer from 'puppeteer-core';
 
 import { pageHelpers } from './fixture-page.mjs';
 
+/** Blosc-compress the fixture chunk here, so the page can write real bytes. */
+async function bloscChunkBase64() {
+  const { default: Blosc } = await import('numcodecs/blosc');
+  const codec = new Blosc({ cname: 'zstd', clevel: 5, shuffle: 1, blocksize: 0 });
+  const data = new Uint8Array(4 * 16 * 16);
+  for (let i = 0; i < data.length; i++) data[i] = i % 251;
+  return Buffer.from(await codec.encode(data)).toString('base64');
+}
+
 const DIST = fileURLToPath(new URL('../../dist/', import.meta.url));
 const BASE = '/ome-zarr-portal/';
 const PORT = 5180;
@@ -107,6 +116,7 @@ const mountId = `test${Date.now().toString(36)}`;
 const datasetName = 'browser_test.ome.zarr';
 const datasetUrl = `${ORIGIN}${BASE}_local/${mountId}/${datasetName}/`;
 const planarUrl = `${ORIGIN}${BASE}_local/${mountId}/planar_test.ome.zarr/`;
+const previewUrl = (dataset) => `${ORIGIN}${BASE}_preview/${mountId}/${dataset}`;
 
 try {
   const page = await browser.newPage();
@@ -133,10 +143,11 @@ try {
   await page.evaluate(pageHelpers);
   await check('an OPFS-backed mount can be created', async () => {
     const id = await page.evaluate(
-      (m, f, d) => createOpfsMount(m, f, d),
+      (m, f, d, blosc) => createOpfsMount(m, f, d, blosc),
       mountId,
       'browser-fixture',
       datasetName,
+      await bloscChunkBase64(),
     );
     assertEqual(id, mountId, 'mount id round-trips');
   });
@@ -281,21 +292,82 @@ try {
     assertEqual(served.length, String(4 * 16 * 16), 'chunk length');
   });
 
+  /* ------------------------------------------------------------- previews */
+
+  /** Fetch a preview and decode it, returning its real pixel dimensions. */
+  async function fetchPreview(dataset) {
+    return page.evaluate(async (url) => {
+      const response = await fetch(url);
+      if (!response.ok) {
+        return { status: response.status, error: response.headers.get('X-Local-Error') };
+      }
+      const blob = await response.blob();
+      const bitmap = await createImageBitmap(blob);
+      // Read the pixels back so the check covers real image content, not just
+      // a well-formed but empty PNG.
+      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(bitmap, 0, 0);
+      const { data } = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+      let min = 255;
+      let max = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        if (data[i] < min) min = data[i];
+        if (data[i] > max) max = data[i];
+      }
+      return {
+        status: response.status,
+        type: response.headers.get('Content-Type'),
+        cacheControl: response.headers.get('Cache-Control'),
+        bytes: blob.size,
+        width: bitmap.width,
+        height: bitmap.height,
+        min,
+        max,
+      };
+    }, previewUrl(dataset));
+  }
+
+  await check('preview renders a PNG from a raw v3 dataset', async () => {
+    const result = await fetchPreview(datasetName);
+    assertEqual(result.status, 200, `expected a preview, got ${result.error ?? result.status}`);
+    assertEqual(result.type, 'image/png', 'content type');
+    assertEqual(result.width, 16, 'preview width matches the coarsest level');
+    assertEqual(result.height, 16, 'preview height matches the coarsest level');
+    assert(result.bytes > 0, 'PNG has content');
+    assert(result.max > result.min, 'projection produced real contrast, not a flat image');
+  });
+
+  await check('preview decodes a blosc-compressed v2 dataset', async () => {
+    const result = await fetchPreview('blosc_test.ome.zarr');
+    assertEqual(result.status, 200, `expected a preview, got ${result.error ?? result.status}`);
+    assertEqual(result.width, 16, 'preview width');
+    assertEqual(result.height, 16, 'preview height');
+    assert(result.max > result.min, 'blosc chunk decoded to real data');
+  });
+
+  await check('preview 404s for an unknown dataset so the gallery falls back', async () => {
+    const result = await fetchPreview('not-a-dataset');
+    assertEqual(result.status, 404, 'missing dataset');
+    assertEqual(result.error, 'no-preview', 'signals why');
+  });
+
   /* ------------------------------------------------------------ Zarrcade */
 
   await check('Zarrcade renders a gallery from a generated session catalog', async () => {
     const sessionId = `s${Date.now().toString(36)}`;
     const configUrl = await page.evaluate(
       async (sid, base, dsUrl) => {
+        const preview = `${location.origin}${base}_preview/${dsUrl.split('/_local/')[1].replace(/\/$/, '')}`;
         const catalog =
-          'Name,path,Folder,Location,NGFF Version,Zarr Format,Axes,Shape,Data Type,Levels\n' +
-          `browser_test,${dsUrl},browser-fixture,browser_test.ome.zarr,0.5,v3,"z, y, x","4 × 16 × 16",uint8,1\n`;
+          'Name,path,thumbnail,Folder,Location,NGFF Version,Zarr Format,Axes,Shape,Data Type,Levels\n' +
+          `browser_test,${dsUrl},${preview},browser-fixture,browser_test.ome.zarr,0.5,v3,"z, y, x","4 × 16 × 16",uint8,1\n`;
         const catalogUrl = `${location.origin}${base}_session/${sid}/catalog.csv`;
         const config = {
           title: 'Browser test gallery',
           dataUrl: catalogUrl,
-          data: { delimiter: ',', pathColumn: 'path' },
-          display: { titleColumn: 'Name', hideColumns: ['path'], pageSize: 50 },
+          data: { delimiter: ',', pathColumn: 'path', thumbnailColumn: 'thumbnail' },
+          display: { titleColumn: 'Name', hideColumns: ['path', 'thumbnail'], pageSize: 50 },
           filters: [],
           viewers: [],
         };
@@ -339,6 +411,28 @@ try {
       );
       const text = await zcPage.evaluate(() => document.body.innerText);
       assert(text.includes('browser_test'), 'gallery lists the dataset');
+
+      // The card must show the generated preview, not the placeholder icon.
+      // `naturalWidth` is the decisive check: it is non-zero only if the image
+      // actually decoded.
+      const thumbnail = await zcPage.evaluate(async () => {
+        const deadline = Date.now() + 20000;
+        while (Date.now() < deadline) {
+          const img = document.querySelector('.image-card-thumbnail img');
+          if (img && img.complete && img.naturalWidth > 0) {
+            return { src: img.getAttribute('src'), width: img.naturalWidth, height: img.naturalHeight };
+          }
+          await new Promise((r) => setTimeout(r, 200));
+        }
+        const img = document.querySelector('.image-card-thumbnail img');
+        return { src: img?.getAttribute('src') ?? null, width: img?.naturalWidth ?? 0, height: 0 };
+      });
+
+      assert(
+        thumbnail.src?.includes('/_preview/'),
+        `card should show the generated preview, got ${thumbnail.src}`,
+      );
+      assertEqual(thumbnail.width, 16, 'preview decoded at the coarsest level size');
     } finally {
       await zcPage.close();
     }

@@ -28,6 +28,17 @@ export interface DiscoveredDataset {
   dtype?: string;
   /** Number of resolution levels. */
   scaleCount?: number;
+  /**
+   * The dataset advertises its own thumbnails (zarr thumbnails convention).
+   * Zarrcade reads those directly, so no preview needs generating.
+   */
+  hasConventionThumbnail?: boolean;
+  /**
+   * The coarsest pyramid level is small enough to project into a preview.
+   * False when there is no pyramid metadata, or the smallest level is still
+   * too large to read whole — see `src/preview/policy.ts`.
+   */
+  previewable?: boolean;
 }
 
 export type DiscoveryNoteKind =

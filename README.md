@@ -90,6 +90,9 @@ For example:
 The HTTP semantics live in `src/vfs/serve.ts`, separate from the worker's event
 wiring so they can be tested outside a browser. Supported:
 
+(A third namespace, `_preview/`, is described under
+[Previews](#previews).)
+
 | Feature | Behaviour |
 | --- | --- |
 | `GET`, `HEAD` | 200 with `Content-Length`; `HEAD` omits the body |
@@ -112,6 +115,57 @@ Reading a byte range slices the live `File`, so opening a 200 GB dataset costs
 no disk space and no copy. Intermediate directory handles are cached per mount,
 because a chunked array issues thousands of requests sharing a long path
 prefix.
+
+### Previews
+
+Gallery cards show an image without any precomputation step. The rule:
+
+1. **If the dataset ships thumbnails** (the [zarr thumbnails convention][thumb]),
+   use them. The portal leaves the catalog's thumbnail cell empty and Zarrcade
+   reads the convention itself, picking the best-sized entry — upstream already
+   does this well.
+2. **Otherwise**, project the *coarsest* level of the multiscale pyramid. That
+   level exists precisely so a whole-image view is cheap, so the preview costs
+   one small read rather than a rendering pipeline.
+3. **Unless it is still too big.** Eligibility is decided at discovery time from
+   array metadata alone — no data is read — so an oversized dataset simply gets
+   no preview and falls back to the placeholder icon.
+
+The bounds live in `src/preview/policy.ts`: the coarsest level must be at most
+1024 × 1024 elements in total, with neither spatial extent above 4096. A
+well-formed pyramid bottoms out well inside that; a dataset whose smallest
+level is still enormous is exactly the one to skip.
+
+The projection takes the maximum over every axis that is not `y` or `x`, so
+time, channel and depth all collapse by one uniform rule, and indexing follows
+the strides the reader reports rather than assuming `tczyx` order. Contrast is
+stretched to the 1st–99th percentile via a histogram, because a single hot
+pixel would otherwise wash out a min/max scaling.
+
+Previews are served from a third namespace:
+
+```
+GET|HEAD  <base>_preview/<mount-id>/<dataset-path>   a generated PNG
+```
+
+`_local/` stays a faithful mirror of what is on disk; a preview is derived, so
+it lives elsewhere.
+
+**Where the work happens.** The service worker does *not* render previews. It
+asks a portal page to, over `postMessage`, and that page hands the job to a
+pool of two dedicated workers. The reason is that a service worker cannot use
+dynamic `import()`, so [zarrita][zarrita]'s WASM codecs would have to be bundled
+into it eagerly — 1.4 MB downloaded and parsed by every visitor whether or not
+they ever open a gallery, taking worker cold start from ~8 ms to ~30 ms. That
+worker is on the critical path for every byte Neuroglancer reads, so optional
+machinery does not belong in it. (Warm per-request throughput was the same
+either way, ~1.2 ms; only cold start differed.)
+
+The cost of that split is one failure mode: if no portal page is open anywhere
+— a gallery left in a tab of its own after the portal was closed — nothing
+answers, and the request 404s. Zarrcade's image `onerror` then shows its
+placeholder, which is the same graceful path taken by every other reason a
+preview might be unavailable.
 
 ### The `_session/` namespace
 
@@ -241,10 +295,10 @@ misconfigured gallery.
 
 Consequences worth knowing:
 
-* Zarrcade renders thumbnails client-side via the [zarr thumbnails
-  convention][thumb], reading `zarr.json` → `attributes.thumbnails`. Datasets
-  without that convention (including all Zarr v2 ones) show the placeholder
-  icon. This is upstream behaviour, working normally.
+* Zarrcade's own thumbnail support reads the [zarr thumbnails convention][thumb]
+  from `zarr.json` → `attributes.thumbnails`, i.e. Zarr v3 only. The portal
+  fills the gap for everything else by generating previews; see
+  [Previews](#previews).
 * Zarrcade derives the Neuroglancer layer name from the URL basename with only
   `.zarr` stripped, so a `sample.ome.zarr` opened from the gallery is labelled
   `sample.ome`. Opening the same dataset from the landing page gives `sample`.
@@ -306,6 +360,10 @@ not work here.
 similar hosted tools cannot fetch a URL that only resolves inside this browser
 profile. Only same-origin viewers work, which is why both are bundled.
 
+**Previews need a portal page open.** They are rendered by a page on the
+service worker's behalf, so a gallery left open in its own tab after the portal
+was closed falls back to placeholder icons. Reopening the portal restores them.
+
 **Large plates are capped.** Discovery stops after 1000 datasets (and other
 bounds) and reports that it did.
 
@@ -328,6 +386,10 @@ src/
     client.ts               registration, base-path derivation, session docs
     idb.ts, protocol.ts     storage and the page/worker contract
   discovery/                OME-Zarr discovery
+  preview/                  on-demand gallery previews
+    policy.ts               when a preview is worth generating
+    render.ts               coarsest level -> projection -> PNG
+    worker.ts, host.ts      dedicated worker and its page-side host
   integrations/             Neuroglancer state, Zarrcade config + catalog
 tests/                      unit tests (`npm test`)
 tests/browser/              end-to-end in Chrome (`npm run test:browser`)
@@ -352,3 +414,4 @@ BSD-3-Clause; both are consumed as unmodified published packages.
 [ng]: https://github.com/google/neuroglancer
 [zc]: https://github.com/JaneliaSciComp/zarrcade
 [thumb]: https://github.com/clbarnes/zarr-convention-thumbnails
+[zarrita]: https://github.com/manzt/zarrita.js

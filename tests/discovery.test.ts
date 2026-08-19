@@ -37,7 +37,13 @@ describe('OME-Zarr discovery', () => {
   it('finds every multiscale image and nothing else', () => {
     assert.deepEqual(
       result.datasets.map((dataset) => dataset.relativePath).sort(),
-      ['nested/deeper/v3-image.ome.zarr', 'plate.ome.zarr/A/1/0', 'v2-image.ome.zarr'],
+      [
+        'big-pyramid.ome.zarr',
+        'nested/deeper/v3-image.ome.zarr',
+        'plate.ome.zarr/A/1/0',
+        'thumbed.ome.zarr',
+        'v2-image.ome.zarr',
+      ],
     );
   });
 
@@ -63,7 +69,7 @@ describe('OME-Zarr discovery', () => {
     // leading to them. If the walk descended into resolution levels or chunk
     // directories this number would be far larger.
     assert.ok(
-      result.directoriesScanned < 20,
+      result.directoriesScanned < 25,
       `scanned ${result.directoriesScanned} folders, expected the walk to stop at dataset roots`,
     );
   });
@@ -134,6 +140,27 @@ describe('OME-Zarr discovery', () => {
     assert.match(single.notes[0].message, /bare Zarr array/);
   });
 
+  it('marks a dataset previewable when its coarsest level is small', () => {
+    // v2-image bottoms out at 2 x 32 x 32.
+    const dataset = byName(result, 'v2-image');
+    assert.equal(dataset.previewable, true);
+    assert.equal(dataset.hasConventionThumbnail, false);
+  });
+
+  it('refuses a preview when the coarsest level is still huge', () => {
+    // 8192 x 8192 exceeds both the element budget and the extent cap, and the
+    // judgement is made from metadata alone — no chunk is read.
+    const dataset = byName(result, 'big-pyramid');
+    assert.equal(dataset.previewable, false);
+  });
+
+  it('defers to a dataset that ships its own thumbnails', () => {
+    const dataset = byName(result, 'thumbed');
+    assert.equal(dataset.hasConventionThumbnail, true);
+    // No preview needed: Zarrcade reads the convention itself.
+    assert.equal(dataset.previewable, false);
+  });
+
   it('honours the dataset limit and reports it', async () => {
     const limited = await discoverInMount(mountFor(fixture.root, 'drop'), {
       urlBuilder,
@@ -149,8 +176,8 @@ describe('OME-Zarr discovery', () => {
       limits: { maxDepth: 1 },
     });
     assert.deepEqual(
-      shallow.datasets.map((dataset) => dataset.relativePath),
-      ['v2-image.ome.zarr'],
+      shallow.datasets.map((dataset) => dataset.relativePath).sort(),
+      ['big-pyramid.ome.zarr', 'thumbed.ome.zarr', 'v2-image.ome.zarr'],
     );
     assert.ok(shallow.notes.some((note) => note.kind === 'limit'));
   });

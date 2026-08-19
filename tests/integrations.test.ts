@@ -149,6 +149,49 @@ describe('viewer layout', () => {
   });
 });
 
+describe('gallery previews', () => {
+  const cell = (overrides: Partial<DiscoveredDataset>) => {
+    const row = buildCatalogCsv([dataset(overrides)]).trimEnd().split('\n')[1];
+    return row.split(',')[2];
+  };
+
+  it('links a generated preview when the dataset has no thumbnail of its own', () => {
+    assert.equal(
+      cell({ previewable: true, hasConventionThumbnail: false }),
+      'https://example.test/portal/_preview/m1/img.ome.zarr',
+    );
+  });
+
+  it('stands aside when the dataset ships its own thumbnails', () => {
+    // Left empty on purpose: Zarrcade then reads the zarr thumbnails
+    // convention itself and picks the best-sized entry.
+    assert.equal(cell({ previewable: false, hasConventionThumbnail: true }), '');
+  });
+
+  it('prefers a real thumbnail over a projection when both are possible', () => {
+    assert.equal(cell({ previewable: true, hasConventionThumbnail: true }), '');
+  });
+
+  it('leaves the cell empty when no preview can be produced', () => {
+    // Zarrcade falls through to its placeholder icon.
+    assert.equal(cell({ previewable: false, hasConventionThumbnail: false }), '');
+  });
+
+  it('tells Zarrcade which column holds the thumbnail, and hides it', () => {
+    const config = buildZarrcadeConfig('catalog.csv', 'T', [dataset()]) as {
+      data: { thumbnailColumn: string };
+      display: { hideColumns: string[] };
+    };
+    const header = buildCatalogCsv([dataset()]).split('\n')[0].split(',');
+
+    assert.ok(header.includes(config.data.thumbnailColumn), 'column exists in the catalog');
+    assert.ok(
+      config.display.hideColumns.includes(config.data.thumbnailColumn),
+      'the URL is not shown as metadata',
+    );
+  });
+});
+
 describe('Zarrcade catalog', () => {
   it('emits a header and one row per dataset', () => {
     const csv = buildCatalogCsv([dataset(), dataset({ name: 'second', id: 'm1:second' })]);
@@ -156,9 +199,9 @@ describe('Zarrcade catalog', () => {
     assert.equal(lines.length, 3);
     assert.equal(
       lines[0],
-      'Name,path,Folder,Location,NGFF Version,Zarr Format,Axes,Shape,Data Type,Levels',
+      'Name,path,thumbnail,Folder,Location,NGFF Version,Zarr Format,Axes,Shape,Data Type,Levels',
     );
-    assert.ok(lines[1].startsWith('img,https://example.test/portal/_local/m1/img.ome.zarr/,drop,'));
+    assert.ok(lines[1].startsWith('img,https://example.test/portal/_local/m1/img.ome.zarr/,'));
   });
 
   it('quotes fields containing commas or quotes', () => {

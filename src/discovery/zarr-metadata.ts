@@ -159,6 +159,19 @@ export function readMultiscale(node: { attributes: JsonObject }): MultiscaleInfo
   return null;
 }
 
+/**
+ * True if the group advertises thumbnails via the zarr thumbnails convention.
+ *
+ * Zarrcade reads these itself and picks the best-sized entry, so when they are
+ * present the portal steps aside rather than generating a preview. Matches
+ * upstream in consulting only `zarr.json`, i.e. Zarr v3.
+ */
+export function hasThumbnailsConvention(node: { format: 2 | 3; attributes: JsonObject }): boolean {
+  if (node.format !== 3) return false;
+  const thumbnails = node.attributes.thumbnails;
+  return Array.isArray(thumbnails) && thumbnails.length > 0;
+}
+
 /** True if the group is an HCS plate root. */
 export function isPlate(node: { attributes: JsonObject }): boolean {
   return omeAttributes(node).some((bag) => isObject(bag.plate));

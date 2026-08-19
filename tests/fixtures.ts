@@ -138,6 +138,65 @@ export async function makeFixture(): Promise<Fixture> {
   });
   await makeV2Image(join(plate, 'A', '1', '0'), 1);
 
+  // A pyramid whose coarsest level is still far too large to project.
+  // Only metadata is needed: eligibility never reads chunk data.
+  const big = join(root, 'big-pyramid.ome.zarr');
+  await writeJson(join(big, '.zgroup'), { zarr_format: 2 });
+  await writeJson(join(big, '.zattrs'), {
+    multiscales: [
+      {
+        version: '0.4',
+        axes: [
+          { name: 'y', type: 'space' },
+          { name: 'x', type: 'space' },
+        ],
+        datasets: [{ path: '0' }],
+      },
+    ],
+  });
+  await writeJson(join(big, '0', '.zarray'), {
+    zarr_format: 2,
+    shape: [8192, 8192],
+    chunks: [512, 512],
+    dtype: '<u2',
+    compressor: null,
+    fill_value: 0,
+    order: 'C',
+    filters: null,
+  });
+
+  // A dataset that ships its own thumbnails via the zarr convention.
+  const thumbed = join(root, 'thumbed.ome.zarr');
+  await writeJson(join(thumbed, 'zarr.json'), {
+    zarr_format: 3,
+    node_type: 'group',
+    attributes: {
+      thumbnails: [{ width: 256, height: 256, media_type: 'image/png', path: 'thumb.png' }],
+      ome: {
+        version: '0.5',
+        multiscales: [
+          {
+            axes: [
+              { name: 'y', type: 'space' },
+              { name: 'x', type: 'space' },
+            ],
+            datasets: [{ path: '0' }],
+          },
+        ],
+      },
+    },
+  });
+  await writeJson(join(thumbed, '0', 'zarr.json'), {
+    zarr_format: 3,
+    node_type: 'array',
+    shape: [16, 16],
+    data_type: 'uint8',
+    chunk_grid: { name: 'regular', configuration: { chunk_shape: [16, 16] } },
+    chunk_key_encoding: { name: 'default' },
+    codecs: [{ name: 'bytes', configuration: { endian: 'little' } }],
+    fill_value: 0,
+  });
+
   // Noise that must be ignored.
   await fs.writeFile(join(root, 'README.txt'), 'not a dataset');
   await fs.mkdir(join(root, '__MACOSX'), { recursive: true });

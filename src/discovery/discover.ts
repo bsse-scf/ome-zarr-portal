@@ -16,7 +16,9 @@
  */
 import type { Mount } from '../mounts/registry';
 import { localUrl } from '../vfs/client';
+import { isPreviewable, spatialAxes } from '../preview/policy';
 import {
+  hasThumbnailsConvention,
   isBioformats2RawLayout,
   isPlate,
   readArrayInfo,
@@ -82,22 +84,19 @@ function reportLimit(context: WalkContext, key: string, message: string): void {
 }
 
 /**
- * Read the highest-resolution array's shape and dtype.
+ * Read one pyramid level's array metadata.
  *
  * Best-effort: this is display metadata for the gallery, so any failure is
  * swallowed rather than turned into a note the user cannot act on.
  */
-async function readScaleInfo(
+async function readLevelInfo(
   directory: FileSystemDirectoryHandle,
-  multiscale: MultiscaleInfo,
+  levelPath: string,
   format: 2 | 3,
 ): Promise<{ shape?: number[]; dtype?: string }> {
-  const path = multiscale.paths[0];
-  if (!path) return {};
-
   try {
     let current = directory;
-    for (const segment of path.split('/').filter(Boolean)) {
+    for (const segment of levelPath.split('/').filter(Boolean)) {
       current = await current.getDirectoryHandle(segment);
     }
     const raw =
@@ -110,6 +109,26 @@ async function readScaleInfo(
   }
 }
 
+/**
+ * Decide whether a preview can be projected from the coarsest level.
+ *
+ * Reads only that level's metadata — never its data — so an ineligible dataset
+ * costs one small JSON read and is simply left without a preview.
+ */
+async function checkPreviewable(
+  directory: FileSystemDirectoryHandle,
+  multiscale: MultiscaleInfo,
+  format: 2 | 3,
+): Promise<boolean> {
+  const coarsest = multiscale.paths[multiscale.paths.length - 1];
+  if (!coarsest) return false;
+
+  const { shape } = await readLevelInfo(directory, coarsest, format);
+  if (!shape || shape.length < 2) return false;
+
+  return isPreviewable(shape, spatialAxes(multiscale.axes, shape.length));
+}
+
 async function recordDataset(
   context: WalkContext,
   directory: FileSystemDirectoryHandle,
@@ -118,7 +137,17 @@ async function recordDataset(
   multiscale: MultiscaleInfo,
 ): Promise<void> {
   const { mount } = context;
-  const { shape, dtype } = await readScaleInfo(directory, multiscale, node.format);
+  const finest = multiscale.paths[0];
+  const { shape, dtype } = finest
+    ? await readLevelInfo(directory, finest, node.format)
+    : {};
+
+  const hasConventionThumbnail = hasThumbnailsConvention(node);
+  // A dataset that ships its own thumbnails needs no preview from us, so skip
+  // the extra metadata read entirely.
+  const previewable = hasConventionThumbnail
+    ? false
+    : await checkPreviewable(directory, multiscale, node.format);
 
   context.datasets.push({
     id: `${mount.id}:${relativePath || '.'}`,
@@ -133,6 +162,8 @@ async function recordDataset(
     shape,
     dtype,
     scaleCount: multiscale.paths.length || undefined,
+    hasConventionThumbnail,
+    previewable,
   });
 }
 

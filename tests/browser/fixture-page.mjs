@@ -94,6 +94,44 @@ async function buildOmeZarrV3Planar(root, name) {
   return dir;
 }
 
+/**
+ * A Zarr v2 / OME-NGFF 0.4 image whose single chunk is blosc-compressed.
+ *
+ * This is the layout most OME-Zarr in the wild actually uses, and it is the
+ * only fixture that exercises a real compression codec — the v3 ones store raw
+ * bytes, which would let a broken codec path pass unnoticed.
+ */
+async function buildOmeZarrV2Blosc(root, name, chunkBase64) {
+  const dir = await root.getDirectoryHandle(name, { create: true });
+  await writeFile(dir, '.zgroup', JSON.stringify({ zarr_format: 2 }));
+  await writeFile(dir, '.zattrs', JSON.stringify({
+    multiscales: [{
+      version: '0.4',
+      name: 'blosc test',
+      axes: [
+        { name: 'z', type: 'space' },
+        { name: 'y', type: 'space' },
+        { name: 'x', type: 'space' },
+      ],
+      datasets: [{ path: '0', coordinateTransformations: [{ type: 'scale', scale: [1, 1, 1] }] }],
+    }],
+  }));
+  await writeFile(dir, '0/.zarray', JSON.stringify({
+    zarr_format: 2,
+    shape: [4, 16, 16],
+    chunks: [4, 16, 16],
+    dtype: '|u1',
+    compressor: { id: 'blosc', cname: 'zstd', clevel: 5, shuffle: 1, blocksize: 0 },
+    fill_value: 0,
+    order: 'C',
+    filters: null,
+  }));
+  const bytes = Uint8Array.from(atob(chunkBase64), (c) => c.charCodeAt(0));
+  // Zarr v2's default dimension separator is '.', so the key is flat.
+  await writeFile(dir, '0/0.0.0', bytes);
+  return dir;
+}
+
 function openPortalDb() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open('ome-zarr-portal', 1);
@@ -121,13 +159,16 @@ async function idbPut(store, value) {
 }
 
 /** Create an OPFS-backed mount and return its id. */
-async function createOpfsMount(mountId, folderName, datasetName) {
+async function createOpfsMount(mountId, folderName, datasetName, bloscChunkBase64) {
   const opfs = await navigator.storage.getDirectory();
   // Start clean so repeated runs do not accumulate.
   try { await opfs.removeEntry(folderName, { recursive: true }); } catch {}
   const folder = await opfs.getDirectoryHandle(folderName, { create: true });
   await buildOmeZarrV3(folder, datasetName);
   await buildOmeZarrV3Planar(folder, 'planar_test.ome.zarr');
+  if (bloscChunkBase64) {
+    await buildOmeZarrV2Blosc(folder, 'blosc_test.ome.zarr', bloscChunkBase64);
+  }
   await idbPut('mounts', { id: mountId, name: folderName, handle: folder, createdAt: Date.now() });
   return mountId;
 }

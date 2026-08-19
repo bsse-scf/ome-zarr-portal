@@ -19,13 +19,14 @@ import {
   LOCAL_SEGMENT,
   MOUNT_STORE,
   namespacePrefix,
+  PREVIEW_SEGMENT,
   SESSION_SEGMENT,
   SESSION_STORE,
   type MountRecord,
   type PortalMessage,
   type SessionFileRecord,
 } from './protocol';
-import { isNotFound, isTypeMismatch, serveLocal, serveSession } from './serve';
+import { isNotFound, isTypeMismatch, serveLocal, servePreview, serveSession } from './serve';
 
 // `self` is typed as `Window` because the project's `lib` includes DOM; cast
 // rather than redeclare so DOM types stay available to shared modules.
@@ -39,6 +40,7 @@ const sw = self as unknown as ServiceWorkerGlobalScope;
 const BASE_PATH = new URL(sw.registration.scope).pathname;
 const LOCAL_PREFIX = namespacePrefix(BASE_PATH, LOCAL_SEGMENT);
 const SESSION_PREFIX = namespacePrefix(BASE_PATH, SESSION_SEGMENT);
+const PREVIEW_PREFIX = namespacePrefix(BASE_PATH, PREVIEW_SEGMENT);
 
 sw.addEventListener('install', () => {
   // Take over immediately: a freshly dropped folder should be readable without
@@ -69,6 +71,14 @@ sw.addEventListener('fetch', (event) => {
         lookupFile: getSessionFile,
       }),
     );
+  } else if (url.pathname.startsWith(PREVIEW_PREFIX)) {
+    event.respondWith(
+      servePreview(event.request, url, {
+        prefix: PREVIEW_PREFIX,
+        lookupMount: getMount,
+        render: renderCachedPreview,
+      }),
+    );
   }
 });
 
@@ -86,9 +96,13 @@ sw.addEventListener('message', (event) => {
           directoryCache.delete(key);
         }
       }
+      for (const key of [...previewCache.keys()]) {
+        if (key.startsWith(`${message.mountId}/`)) previewCache.delete(key);
+      }
     } else {
       mountCache.clear();
       directoryCache.clear();
+      previewCache.clear();
     }
   }
 });
@@ -195,4 +209,90 @@ function mountIdFor(root: FileSystemDirectoryHandle): string {
     if (record && record.handle === root) return id;
   }
   return '?';
+}
+
+/* --------------------------------------------------------------- previews */
+
+/**
+ * Rendered previews, keyed by mount and dataset path.
+ *
+ * Zarrcade preloads the thumbnail for every card on a page at once — 50 by
+ * default — and re-renders them on pagination and filtering. Sharing the
+ * in-flight promise means duplicate requests cost nothing, and keeping the
+ * result means scrolling back is free.
+ */
+const previewCache = new Map<string, Promise<Blob>>();
+const PREVIEW_CACHE_LIMIT = 128;
+
+/** How long to wait for a page to render one preview before giving up. */
+const RENDER_TIMEOUT_MS = 30000;
+
+/**
+ * Ask a controlled page to render a preview.
+ *
+ * This worker cannot do it itself: rendering needs zarrita's WASM codecs,
+ * which a service worker can only obtain by bundling them in eagerly, since it
+ * cannot `import()` lazily. That would add 1.4 MB to the script that serves
+ * every chunk Neuroglancer reads. So the work goes to a page, which can load
+ * them on demand in a dedicated worker.
+ *
+ * The request is broadcast to every window client; only a portal page has a
+ * handler for it, and the first reply wins. When no portal page is open — a
+ * gallery left in a tab of its own, say — nothing replies and the timeout
+ * turns into a 404, which the gallery renders as its placeholder icon.
+ */
+async function requestPreviewFromClient(mountId: string, relativePath: string): Promise<Blob> {
+  const clients = await sw.clients.matchAll({ type: 'window' });
+  if (clients.length === 0) {
+    throw new Error('no page is open to render previews');
+  }
+
+  return new Promise<Blob>((resolve, reject) => {
+    let settled = false;
+    let refusals = 0;
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error('preview render timed out'));
+    }, RENDER_TIMEOUT_MS);
+
+    const finish = (action: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      action();
+    };
+
+    for (const client of clients) {
+      const channel = new MessageChannel();
+      channel.port1.onmessage = (event: MessageEvent) => {
+        const reply = event.data as { ok?: boolean; png?: ArrayBuffer; error?: string };
+        if (reply?.ok && reply.png) {
+          finish(() => resolve(new Blob([reply.png!], { type: 'image/png' })));
+        } else if (++refusals >= clients.length) {
+          finish(() => reject(new Error(reply?.error ?? 'no page could render this preview')));
+        }
+      };
+      client.postMessage({ type: 'render-preview', mountId, relativePath }, [channel.port2]);
+    }
+  });
+}
+
+async function renderCachedPreview(mountId: string, relativePath: string): Promise<Blob> {
+  const key = `${mountId}/${relativePath}`;
+  const cached = previewCache.get(key);
+  if (cached) return cached;
+
+  const pending = requestPreviewFromClient(mountId, relativePath);
+  // A failure is often permanent (too large, unsupported codec) but can also be
+  // transient (no page open yet), so drop it rather than caching a rejection.
+  pending.catch(() => previewCache.delete(key));
+
+  if (previewCache.size >= PREVIEW_CACHE_LIMIT) {
+    const oldest = previewCache.keys().next();
+    if (!oldest.done) previewCache.delete(oldest.value);
+  }
+  previewCache.set(key, pending);
+  return pending;
 }

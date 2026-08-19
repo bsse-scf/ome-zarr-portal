@@ -6,6 +6,7 @@ import { idbDelete, idbGetAll, idbPut } from './idb';
 import {
   LOCAL_SEGMENT,
   namespacePrefix,
+  PREVIEW_SEGMENT,
   SESSION_SEGMENT,
   SESSION_STORE,
   type PortalMessage,
@@ -110,6 +111,20 @@ function encodePath(path: string): string {
  */
 export function localUrl(mountId: string, relativePath = ''): string {
   const prefix = namespacePrefix(getBasePath(), LOCAL_SEGMENT);
+  return new URL(
+    `${prefix}${encodeURIComponent(mountId)}/${encodePath(relativePath)}`,
+    location.origin,
+  ).href;
+}
+
+/**
+ * Absolute URL of a dataset's generated preview image.
+ *
+ * Deliberately outside `_local/`, which mirrors what is actually on disk;
+ * a preview is derived, not a file the user has.
+ */
+export function previewUrl(mountId: string, relativePath: string): string {
+  const prefix = namespacePrefix(getBasePath(), PREVIEW_SEGMENT);
   return new URL(
     `${prefix}${encodeURIComponent(mountId)}/${encodePath(relativePath)}`,
     location.origin,

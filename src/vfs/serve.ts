@@ -370,3 +370,54 @@ export async function serveSession(
 
   return serveBlob(request, new Blob([record.body]), record.contentType);
 }
+
+export interface PreviewServeOptions {
+  prefix: string;
+  lookupMount: (mountId: string) => Promise<{ id: string; handle: FileSystemDirectoryHandle } | null>;
+  /** Produce a PNG for a dataset, or throw if one cannot be made. */
+  render: (mountId: string, relativePath: string) => Promise<Blob>;
+}
+
+/**
+ * Serve a request under the `_preview/` namespace.
+ *
+ * Every failure — an unknown mount, a dataset with no pyramid, a level too
+ * large to project, a codec we cannot decode, no page available to render —
+ * is answered with 404. That is
+ * deliberate: Zarrcade's image `onerror` handler falls back to its placeholder
+ * icon, so an unavailable preview degrades to "no preview" with no special
+ * handling on either side.
+ */
+export async function servePreview(
+  request: Request,
+  url: URL,
+  options: PreviewServeOptions,
+): Promise<Response> {
+  if (request.method !== 'GET' && request.method !== 'HEAD') {
+    return errorResponse(405, 'Method Not Allowed', { Allow: 'GET, HEAD' });
+  }
+
+  const parsed = parsePath(url.pathname, options.prefix);
+  if (!parsed) return errorResponse(400, 'Bad preview path');
+
+  const mount = await options.lookupMount(parsed.id);
+  if (!mount) {
+    return errorResponse(404, 'Not Found', { 'X-Local-Error': 'unknown-mount' });
+  }
+
+  let png: Blob;
+  try {
+    png = await options.render(mount.id, parsed.segments.join('/'));
+  } catch (error) {
+    return errorResponse(404, `No preview available: ${String(error)}`, {
+      'X-Local-Error': 'no-preview',
+    });
+  }
+
+  return serveBlob(request, png, 'image/png', {
+    // Derived, deterministic and cheap to re-request, but re-rendering on
+    // every scroll would be wasteful. A short private cache is a good trade.
+    'Cache-Control': 'private, max-age=300',
+    'X-Local-Mount': mount.id,
+  });
+}

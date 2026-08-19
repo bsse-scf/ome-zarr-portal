@@ -17,6 +17,12 @@
  */
 export const LOCAL_SEGMENT = '_local';
 export const SESSION_SEGMENT = '_session';
+/**
+ * Derived preview images, rendered on demand from a dataset's coarsest
+ * pyramid level. Kept out of `_local/`, which is a faithful mirror of what is
+ * actually on disk.
+ */
+export const PREVIEW_SEGMENT = '_preview';
 
 /** Join a base path (with trailing slash) and a namespace segment. */
 export function namespacePrefix(basePath: string, segment: string): string {
