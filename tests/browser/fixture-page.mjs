@@ -57,6 +57,43 @@ async function buildOmeZarrV3(root, name) {
   return dir;
 }
 
+/** A 2-D image: channel, y, x — no z axis at all. */
+async function buildOmeZarrV3Planar(root, name) {
+  const dir = await root.getDirectoryHandle(name, { create: true });
+  await writeFile(dir, 'zarr.json', JSON.stringify({
+    zarr_format: 3,
+    node_type: 'group',
+    attributes: {
+      ome: {
+        version: '0.5',
+        multiscales: [{
+          name: 'planar test',
+          axes: [
+            { name: 'c', type: 'channel' },
+            { name: 'y', type: 'space', unit: 'micrometer' },
+            { name: 'x', type: 'space', unit: 'micrometer' },
+          ],
+          datasets: [{ path: '0', coordinateTransformations: [{ type: 'scale', scale: [1, 1, 1] }] }],
+        }],
+      },
+    },
+  }));
+  await writeFile(dir, '0/zarr.json', JSON.stringify({
+    zarr_format: 3,
+    node_type: 'array',
+    shape: [1, 16, 16],
+    data_type: 'uint8',
+    chunk_grid: { name: 'regular', configuration: { chunk_shape: [1, 16, 16] } },
+    chunk_key_encoding: { name: 'default', configuration: { separator: '/' } },
+    codecs: [{ name: 'bytes', configuration: { endian: 'little' } }],
+    fill_value: 0,
+  }));
+  const voxels = new Uint8Array(16 * 16);
+  for (let i = 0; i < voxels.length; i++) voxels[i] = i % 251;
+  await writeFile(dir, '0/c/0/0/0', voxels);
+  return dir;
+}
+
 function openPortalDb() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open('ome-zarr-portal', 1);
@@ -90,6 +127,7 @@ async function createOpfsMount(mountId, folderName, datasetName) {
   try { await opfs.removeEntry(folderName, { recursive: true }); } catch {}
   const folder = await opfs.getDirectoryHandle(folderName, { create: true });
   await buildOmeZarrV3(folder, datasetName);
+  await buildOmeZarrV3Planar(folder, 'planar_test.ome.zarr');
   await idbPut('mounts', { id: mountId, name: folderName, handle: folder, createdAt: Date.now() });
   return mountId;
 }

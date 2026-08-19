@@ -106,6 +106,7 @@ const browser = await puppeteer.launch({
 const mountId = `test${Date.now().toString(36)}`;
 const datasetName = 'browser_test.ome.zarr';
 const datasetUrl = `${ORIGIN}${BASE}_local/${mountId}/${datasetName}/`;
+const planarUrl = `${ORIGIN}${BASE}_local/${mountId}/planar_test.ome.zarr/`;
 
 try {
   const page = await browser.newPage();
@@ -190,11 +191,15 @@ try {
 
   /* ------------------------------------------------------- Neuroglancer */
 
-  await check('Neuroglancer loads a zarr source from the virtual namespace', async () => {
+  /**
+   * Open the bundled viewer on one source and wait until the layer resolves.
+   * Returns the rendered panel count, which is how the layout is observable.
+   */
+  async function openInNeuroglancer(sourceUrl, layerName, layout) {
     const state = {
-      layers: [{ type: 'auto', name: 'browser_test', source: `zarr://${datasetUrl}` }],
-      selectedLayer: { visible: true, layer: 'browser_test' },
-      layout: '4panel-alt',
+      layers: [{ type: 'auto', name: layerName, source: `zarr://${sourceUrl}` }],
+      selectedLayer: { visible: true, layer: layerName },
+      layout,
     };
     const ngPage = await browser.newPage();
     const ngErrors = [];
@@ -219,12 +224,13 @@ try {
             return { ok: false, reason: statusText };
           }
           const managed = window.viewer?.layerManager?.managedLayers ?? [];
-          if (managed.length > 0 && managed[0].layer !== null && managed[0].isReady?.() !== false) {
-            const layer = managed[0].layer;
+          const panels = document.querySelectorAll('.neuroglancer-panel').length;
+          if (managed.length > 0 && managed[0].layer !== null && panels > 0) {
             return {
               ok: true,
-              layerType: layer.constructor?.name,
-              sources: layer.dataSources?.length ?? 0,
+              sources: managed[0].layer.dataSources?.length ?? 0,
+              panels,
+              layout: window.viewer.state.toJSON().layout,
               statusText,
             };
           }
@@ -236,14 +242,32 @@ try {
         };
       });
 
-      assert(outcome.ok, `Neuroglancer did not load the source: ${outcome.reason}`);
-      assert(outcome.sources > 0, 'layer should have a resolved data source');
-
       const scheme = ngErrors.find((e) => /unsupported scheme/i.test(e));
-      assert(!scheme, `console reported: ${scheme}`);
+      if (scheme) throw new Error(`console reported: ${scheme}`);
+      return outcome;
     } finally {
       await ngPage.close();
     }
+  }
+
+  await check('Neuroglancer loads a zarr source from the virtual namespace', async () => {
+    const outcome = await openInNeuroglancer(datasetUrl, 'browser_test', '4panel-alt');
+    assert(outcome.ok, `Neuroglancer did not load the source: ${outcome.reason}`);
+    assert(outcome.sources > 0, 'layer should have a resolved data source');
+  });
+
+  await check('volumetric data renders the four orthogonal panels', async () => {
+    const outcome = await openInNeuroglancer(datasetUrl, 'browser_test', '4panel-alt');
+    assert(outcome.ok, `did not load: ${outcome.reason}`);
+    assertEqual(outcome.layout, '4panel-alt', 'viewer kept the requested layout');
+    assertEqual(outcome.panels, 4, 'four panels for data with depth');
+  });
+
+  await check('planar data renders a single xy panel', async () => {
+    const outcome = await openInNeuroglancer(planarUrl, 'planar_test', 'xy');
+    assert(outcome.ok, `did not load: ${outcome.reason}`);
+    assertEqual(outcome.layout, 'xy', 'viewer kept the requested layout');
+    assertEqual(outcome.panels, 1, 'one panel for data with no z axis');
   });
 
   await check('Neuroglancer requested real chunk data through the worker', async () => {

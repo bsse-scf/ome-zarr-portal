@@ -24,6 +24,46 @@ function uniqueNames(datasets: DiscoveredDataset[]): string[] {
   });
 }
 
+/** Orthogonal slice panels plus a 3-D view: right for volumetric data. */
+const VOLUMETRIC_LAYOUT = '4panel-alt';
+/** A single XY panel: right for data with no depth to slice through. */
+const PLANAR_LAYOUT = 'xy';
+
+/**
+ * Whether a dataset has real depth, and so wants orthogonal panels.
+ *
+ * A 2-D image shown in the 4-panel layout wastes two panels on degenerate
+ * single-voxel strips, so this decides which layout the viewer opens in.
+ */
+export function isVolumetric(dataset: DiscoveredDataset): boolean {
+  const { axes, shape } = dataset;
+
+  // OME-NGFF before 0.4 carries no axes metadata and was always 5-D (tczyx).
+  // Assume depth rather than risk flattening a volume to a single plane.
+  if (!axes) return true;
+
+  const z = axes.findIndex((axis) => axis.toLowerCase() === 'z');
+  if (z === -1) return false;
+
+  // A z axis of length 1 is a 2-D image that merely declares the dimension —
+  // common in converted slide scans. Treat it as planar.
+  if (shape && shape.length === axes.length) return shape[z] > 1;
+
+  return true;
+}
+
+/**
+ * Pick one layout for the whole viewer.
+ *
+ * Neuroglancer's layout is a property of the viewer, not of a layer, so a
+ * mixed set has to compromise: if anything has depth, keep the orthogonal
+ * panels, since that layout still shows planar layers correctly.
+ */
+export function chooseLayout(datasets: DiscoveredDataset[]): string {
+  if (datasets.length === 0) return VOLUMETRIC_LAYOUT;
+  return datasets.some(isVolumetric) ? VOLUMETRIC_LAYOUT : PLANAR_LAYOUT;
+}
+
 export interface NeuroglancerState {
   layers: Array<{ type: string; name: string; source: string }>;
   selectedLayer?: { visible: boolean; layer: string };
@@ -48,7 +88,7 @@ export function buildNeuroglancerState(datasets: DiscoveredDataset[]): Neuroglan
   return {
     layers,
     ...(layers.length > 0 ? { selectedLayer: { visible: true, layer: layers[0].name } } : {}),
-    layout: '4panel-alt',
+    layout: chooseLayout(datasets),
   };
 }
 
@@ -69,10 +109,14 @@ export function neuroglancerUrl(datasets: DiscoveredDataset[]): string {
  * Zarrcade substitutes `{URL}` and `{NAME}` by plain string replacement, so
  * the fragment is left as raw JSON rather than percent-encoded — the same form
  * Zarrcade's stock templates use, and one Neuroglancer accepts.
+ *
+ * A template is a single string shared by every row, and Zarrcade exposes only
+ * the path and name to it, so the layout cannot vary per dataset here. It is
+ * chosen for the gallery as a whole, exactly as it is for a multi-layer view.
  */
-export function neuroglancerUrlTemplate(): string {
+export function neuroglancerUrlTemplate(datasets: DiscoveredDataset[]): string {
   const state =
     '{"layers":[{"name":"{NAME}","source":"zarr://{URL}","type":"auto"}],' +
-    '"selectedLayer":{"visible":true,"layer":"{NAME}"},"layout":"4panel-alt"}';
+    `"selectedLayer":{"visible":true,"layer":"{NAME}"},"layout":"${chooseLayout(datasets)}"}`;
   return `${siteUrl('neuroglancer/index.html')}#!${state}`;
 }

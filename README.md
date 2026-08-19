@@ -198,6 +198,19 @@ builds one `zarr://` layer per discovered dataset with `type: "auto"`, which
 lets Neuroglancer decide from the OME-NGFF metadata whether a dataset is an
 image or a segmentation.
 
+The **layout** is chosen from the data. Datasets with real depth open in the
+four-panel orthogonal layout (`4panel-alt`); datasets with no z axis open as a
+single `xy` panel, since orthogonal panels of a 2-D image are two degenerate
+single-voxel strips. A z axis of length 1 counts as planar — common in
+converted slide scans — and OME-NGFF older than 0.4, which declares no axes at
+all, is assumed volumetric because it was always 5-D.
+
+Neuroglancer's layout belongs to the viewer rather than to a layer, so a drop
+containing both kinds keeps the orthogonal layout, which still displays planar
+layers correctly. The same choice is baked into the Zarrcade viewer template:
+Zarrcade exposes only a row's path and name to a template, so the layout is
+picked for the gallery as a whole rather than per dataset.
+
 Nothing needed patching because the virtual URLs are same-origin, ordinary
 HTTP. Neuroglancer's `zarr://` source sits on its HTTP key-value store, which
 needs exactly what the worker provides: `GET`, `HEAD`, byte ranges and honest

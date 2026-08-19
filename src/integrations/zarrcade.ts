@@ -60,7 +60,11 @@ export function buildCatalogCsv(datasets: DiscoveredDataset[]): string {
   return `${lines.join('\n')}\n`;
 }
 
-export function buildZarrcadeConfig(catalogUrl: string, title: string): unknown {
+export function buildZarrcadeConfig(
+  catalogUrl: string,
+  title: string,
+  datasets: DiscoveredDataset[],
+): unknown {
   return {
     title,
     dataUrl: catalogUrl,
@@ -81,7 +85,7 @@ export function buildZarrcadeConfig(catalogUrl: string, title: string): unknown 
       {
         name: 'Neuroglancer',
         icon: 'neuroglancer.png',
-        urlTemplate: neuroglancerUrlTemplate(),
+        urlTemplate: neuroglancerUrlTemplate(datasets),
         enabled: true,
       },
     ],
@@ -117,7 +121,7 @@ export async function createZarrcadeSession(
   const configUrl = await putSessionFile(
     sessionId,
     'config.json',
-    JSON.stringify(buildZarrcadeConfig(catalogUrl, title), null, 2),
+    JSON.stringify(buildZarrcadeConfig(catalogUrl, title, datasets), null, 2),
     'application/json',
   );
 

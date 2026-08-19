@@ -9,6 +9,8 @@ import { describe, it } from 'node:test';
 import type { DiscoveredDataset } from '../src/discovery/types';
 import {
   buildNeuroglancerState,
+  chooseLayout,
+  isVolumetric,
   neuroglancerUrl,
   neuroglancerUrlTemplate,
 } from '../src/integrations/neuroglancer';
@@ -87,6 +89,66 @@ describe('Neuroglancer state', () => {
   });
 });
 
+describe('viewer layout', () => {
+  const planar = (overrides: Partial<DiscoveredDataset> = {}) =>
+    dataset({ axes: ['c', 'y', 'x'], shape: [2, 64, 64], ...overrides });
+  const volumetric = (overrides: Partial<DiscoveredDataset> = {}) =>
+    dataset({ axes: ['z', 'y', 'x'], shape: [32, 64, 64], ...overrides });
+
+  it('uses a single xy panel when there is no z axis', () => {
+    assert.equal(isVolumetric(planar()), false);
+    assert.equal(chooseLayout([planar()]), 'xy');
+    assert.equal(buildNeuroglancerState([planar()]).layout, 'xy');
+  });
+
+  it('uses orthogonal panels when a z axis is present', () => {
+    assert.equal(isVolumetric(volumetric()), true);
+    assert.equal(chooseLayout([volumetric()]), '4panel-alt');
+    assert.equal(buildNeuroglancerState([volumetric()]).layout, '4panel-alt');
+  });
+
+  it('treats a singleton z axis as planar', () => {
+    // A 2-D image stored as 5-D, which orthogonal panels would render as two
+    // degenerate single-voxel strips.
+    const flat = dataset({ axes: ['t', 'c', 'z', 'y', 'x'], shape: [1, 3, 1, 512, 512] });
+    assert.equal(isVolumetric(flat), false);
+    assert.equal(chooseLayout([flat]), 'xy');
+  });
+
+  it('keeps orthogonal panels when any dataset in the set has depth', () => {
+    // The layout belongs to the viewer, not the layer, so a mixed set has to
+    // pick the one that still displays planar layers correctly.
+    assert.equal(chooseLayout([planar(), volumetric()]), '4panel-alt');
+  });
+
+  it('assumes depth when axes metadata is absent', () => {
+    // OME-NGFF before 0.4 declares no axes and was always 5-D.
+    const legacy = dataset({ axes: undefined, shape: undefined, omeZarrVersion: '0.3' });
+    assert.equal(isVolumetric(legacy), true);
+    assert.equal(chooseLayout([legacy]), '4panel-alt');
+  });
+
+  it('ignores a shape that does not line up with the axes', () => {
+    const mismatched = dataset({ axes: ['z', 'y', 'x'], shape: [64, 64] });
+    assert.equal(isVolumetric(mismatched), true);
+  });
+
+  it('matches a capitalised axis name', () => {
+    assert.equal(isVolumetric(dataset({ axes: ['Z', 'Y', 'X'], shape: [8, 8, 8] })), true);
+  });
+
+  it('carries the chosen layout into the Zarrcade viewer template', () => {
+    const url = zarrcadeViewerUrl(neuroglancerUrlTemplate([planar()]), planar().virtualUrl);
+    assert.equal(JSON.parse(url.slice(url.indexOf('#!') + 2)).layout, 'xy');
+
+    const volumetricUrl = zarrcadeViewerUrl(
+      neuroglancerUrlTemplate([volumetric()]),
+      volumetric().virtualUrl,
+    );
+    assert.equal(JSON.parse(volumetricUrl.slice(volumetricUrl.indexOf('#!') + 2)).layout, '4panel-alt');
+  });
+});
+
 describe('Zarrcade catalog', () => {
   it('emits a header and one row per dataset', () => {
     const csv = buildCatalogCsv([dataset(), dataset({ name: 'second', id: 'm1:second' })]);
@@ -115,7 +177,11 @@ describe('Zarrcade catalog', () => {
   });
 
   it('configures Zarrcade to read the column the catalog actually writes', () => {
-    const config = buildZarrcadeConfig('https://example.test/portal/_session/s1/catalog.csv', 'T') as {
+    const config = buildZarrcadeConfig(
+      'https://example.test/portal/_session/s1/catalog.csv',
+      'T',
+      [dataset()],
+    ) as {
       dataUrl: string;
       data: { pathColumn: string };
       display: { hideColumns: string[]; titleColumn: string };
@@ -129,7 +195,7 @@ describe('Zarrcade catalog', () => {
   });
 
   it('offers only viewers that can reach a local URL', () => {
-    const config = buildZarrcadeConfig('catalog.csv', 'T') as {
+    const config = buildZarrcadeConfig('catalog.csv', 'T', [dataset()]) as {
       viewers: Array<{ name: string; urlTemplate: string; enabled: boolean }>;
     };
     for (const viewer of config.viewers.filter((v) => v.enabled)) {
@@ -143,7 +209,7 @@ describe('Zarrcade catalog', () => {
   it('produces a template Zarrcade can substitute into a working viewer URL', () => {
     // The end-to-end contract: Zarrcade fills in the template with a row's
     // path, and the result must be a Neuroglancer URL for that exact source.
-    const url = zarrcadeViewerUrl(neuroglancerUrlTemplate(), dataset().virtualUrl);
+    const url = zarrcadeViewerUrl(neuroglancerUrlTemplate([dataset()]), dataset().virtualUrl);
 
     assert.ok(url.startsWith('https://example.test/portal/neuroglancer/index.html#!'), url);
     const state = JSON.parse(url.slice(url.indexOf('#!') + 2));
