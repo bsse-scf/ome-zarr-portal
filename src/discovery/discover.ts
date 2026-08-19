@@ -50,10 +50,28 @@ function ensureTrailingSlash(url: string): string {
   return url.endsWith('/') ? url : `${url}/`;
 }
 
+/**
+ * Display name: the dataset's path relative to the top of its mount.
+ *
+ * A leaf name alone is not unique. Every field of view in a plate is called
+ * `0`, and conversion pipelines routinely emit the same file name under each
+ * acquisition folder, so a gallery keyed on the leaf shows several rows with
+ * the same title and no way to tell them apart. The relative path is unique
+ * within a mount by construction, and it reads as the location it is.
+ *
+ * Zarr suffixes are dropped from every segment, not just the last: in a
+ * bioformats2raw layout they sit in the middle of the path
+ * (`sample.ome.zarr/0`), and they say nothing a reader of this gallery does
+ * not already know.
+ */
 function displayName(relativePath: string, mount: Mount, multiscale: MultiscaleInfo): string {
-  const base = relativePath === '' ? mount.name : relativePath.slice(relativePath.lastIndexOf('/') + 1);
-  const stripped = base.replace(/\.ome\.zarr$/i, '').replace(/\.zarr$/i, '');
-  return stripped || multiscale.name || base || 'Untitled';
+  const path = relativePath === '' ? mount.name : relativePath;
+  const stripped = path
+    .split('/')
+    .map((segment) => segment.replace(/\.ome\.zarr$/i, '').replace(/\.zarr$/i, ''))
+    .filter((segment) => segment !== '')
+    .join('/');
+  return stripped || multiscale.name || path || 'Untitled';
 }
 
 /** Location shown to the user in notes and in the gallery. */

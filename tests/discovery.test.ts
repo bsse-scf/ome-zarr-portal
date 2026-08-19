@@ -48,6 +48,24 @@ describe('OME-Zarr discovery', () => {
     );
   });
 
+  it('names a dataset by its path below the drop root, not by its leaf', () => {
+    // A leaf name is not unique: every field of view in a plate is called `0`.
+    // Zarr suffixes are dropped from every segment, including the middle ones
+    // a bioformats2raw layout puts there.
+    assert.deepEqual(
+      result.datasets.map((dataset) => dataset.name).sort(),
+      [
+        'big-pyramid',
+        'nested/deeper/v3-image',
+        'plate/A/1/0',
+        'thumbed',
+        'time-series',
+        'v2-image',
+      ],
+    );
+    assert.equal(new Set(result.datasets.map((d) => d.name)).size, result.datasets.length);
+  });
+
   it('never reports a dataset nested inside another dataset', () => {
     // The v2 image has levels `0` and `1`, each a Zarr array with chunk
     // directories below it; none may surface as a dataset of its own. Testing
@@ -86,7 +104,7 @@ describe('OME-Zarr discovery', () => {
   });
 
   it('reads v3 metadata nested under attributes.ome', () => {
-    const dataset = byName(result, 'v3-image');
+    const dataset = byName(result, 'nested/deeper/v3-image');
     assert.equal(dataset.zarrFormat, 3);
     assert.equal(dataset.omeZarrVersion, '0.5');
     assert.deepEqual(dataset.axes, ['z', 'y', 'x']);
