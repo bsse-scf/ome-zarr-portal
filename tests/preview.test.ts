@@ -57,7 +57,7 @@ describe('preview eligibility', () => {
   });
 
   it('counts channels and depth, which are all read', () => {
-    const shape = [1, 40, 40, 256, 256];
+    const shape = [1, 64, 64, 256, 256];
     assert.ok(previewInputBytes(shape, roles, 'uint16') > MAX_PREVIEW_BYTES);
     assert.equal(isPreviewable(shape, roles, 'uint16'), false);
   });
