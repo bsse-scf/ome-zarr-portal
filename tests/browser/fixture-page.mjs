@@ -1,7 +1,7 @@
 /**
  * Page-side helpers, injected into the browser as strings.
  *
- * These build an OME-Zarr dataset in OPFS and register it as a mount. OPFS
+ * These build an OME-Zarr image in OPFS and register it as a mount. OPFS
  * handles are ordinary `FileSystemDirectoryHandle`s — same interface, same
  * structured-clone behaviour — so this exercises the real serving path
  * without needing a human to drag a folder in.
@@ -156,7 +156,7 @@ async function buildOmeZarrV3Series(root, name) {
 }
 
 /**
- * A Zarr v2 / OME-NGFF 0.4 image whose single chunk is blosc-compressed.
+ * An OME-Zarr v4 image whose single chunk is blosc-compressed.
  *
  * This is the layout most OME-Zarr in the wild actually uses, and it is the
  * only fixture that exercises a real compression codec — the v3 ones store raw
@@ -188,7 +188,7 @@ async function buildOmeZarrV2Blosc(root, name, chunkBase64) {
     filters: null,
   }));
   const bytes = Uint8Array.from(atob(chunkBase64), (c) => c.charCodeAt(0));
-  // Zarr v2's default dimension separator is '.', so the key is flat.
+  // The v4 layout separates chunk indices with '.', so the key is flat.
   await writeFile(dir, '0/0.0.0', bytes);
   return dir;
 }
@@ -220,12 +220,12 @@ async function idbPut(store, value) {
 }
 
 /** Create an OPFS-backed mount and return its id. */
-async function createOpfsMount(mountId, folderName, datasetName, bloscChunkBase64) {
+async function createOpfsMount(mountId, folderName, imageName, bloscChunkBase64) {
   const opfs = await navigator.storage.getDirectory();
   // Start clean so repeated runs do not accumulate.
   try { await opfs.removeEntry(folderName, { recursive: true }); } catch {}
   const folder = await opfs.getDirectoryHandle(folderName, { create: true });
-  await buildOmeZarrV3(folder, datasetName);
+  await buildOmeZarrV3(folder, imageName);
   await buildOmeZarrV3Planar(folder, 'planar_test.ome.zarr');
   await buildOmeZarrV3Series(folder, 'series_test.ome.zarr');
   if (bloscChunkBase64) {

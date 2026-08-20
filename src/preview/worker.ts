@@ -1,5 +1,5 @@
 /**
- * Dedicated worker that renders dataset previews.
+ * Dedicated worker that renders image previews.
  *
  * Lives here rather than in the service worker for two reasons: a service
  * worker cannot use dynamic `import()`, so zarrita's WASM codecs would have to

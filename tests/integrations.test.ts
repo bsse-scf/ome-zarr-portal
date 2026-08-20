@@ -6,7 +6,7 @@ import { describe, it } from 'node:test';
 // case, where nothing may assume the site lives at the origin root.
 (globalThis as unknown as { location: URL }).location = new URL('https://example.test/portal/');
 
-import type { DiscoveredDataset } from '../src/discovery/types';
+import type { DiscoveredImage } from '../src/discovery/types';
 import {
   buildNeuroglancerState,
   chooseLayout,
@@ -16,7 +16,7 @@ import {
 } from '../src/integrations/neuroglancer';
 import { buildCatalogCsv, buildZarrcadeConfig } from '../src/integrations/zarrcade';
 
-function dataset(overrides: Partial<DiscoveredDataset> = {}): DiscoveredDataset {
+function image(overrides: Partial<DiscoveredImage> = {}): DiscoveredImage {
   return {
     id: 'm1:img.ome.zarr',
     name: 'img',
@@ -25,11 +25,11 @@ function dataset(overrides: Partial<DiscoveredDataset> = {}): DiscoveredDataset 
     omeZarrVersion: '0.4',
     mountId: 'm1',
     mountName: 'drop',
-    zarrFormat: 2,
+    layout: 'v4',
     axes: ['c', 'y', 'x'],
     shape: [2, 64, 64],
     dtype: '<u2',
-    scaleCount: 3,
+    levelCount: 3,
     ...overrides,
   };
 }
@@ -51,8 +51,8 @@ function zarrcadeViewerUrl(template: string, dataUrl: string): string {
 }
 
 describe('Neuroglancer state', () => {
-  it('makes one auto-typed zarr layer per dataset', () => {
-    const state = buildNeuroglancerState([dataset(), dataset({ name: 'other', id: 'm1:other' })]);
+  it('makes one auto-typed zarr layer per image', () => {
+    const state = buildNeuroglancerState([image(), image({ name: 'other', id: 'm1:other' })]);
     assert.equal(state.layers.length, 2);
     assert.equal(state.layers[0].type, 'auto');
     assert.equal(
@@ -66,9 +66,9 @@ describe('Neuroglancer state', () => {
 
   it('disambiguates layers that share a folder name', () => {
     const state = buildNeuroglancerState([
-      dataset(),
-      dataset({ id: 'm2:img.ome.zarr', virtualUrl: 'https://example.test/portal/_local/m2/img.ome.zarr/' }),
-      dataset({ id: 'm3:img.ome.zarr', virtualUrl: 'https://example.test/portal/_local/m3/img.ome.zarr/' }),
+      image(),
+      image({ id: 'm2:img.ome.zarr', virtualUrl: 'https://example.test/portal/_local/m2/img.ome.zarr/' }),
+      image({ id: 'm3:img.ome.zarr', virtualUrl: 'https://example.test/portal/_local/m3/img.ome.zarr/' }),
     ]);
     assert.deepEqual(
       state.layers.map((layer) => layer.name),
@@ -77,14 +77,14 @@ describe('Neuroglancer state', () => {
   });
 
   it('points at the bundled viewer, not a public instance', () => {
-    const url = neuroglancerUrl([dataset()]);
+    const url = neuroglancerUrl([image()]);
     assert.ok(url.startsWith('https://example.test/portal/neuroglancer/index.html#!'), url);
 
     const state = JSON.parse(decodeURIComponent(url.slice(url.indexOf('#!') + 2)));
     assert.equal(state.layers[0].source, 'zarr://https://example.test/portal/_local/m1/img.ome.zarr/');
   });
 
-  it('survives an empty dataset list without a dangling selection', () => {
+  it('survives an empty image list without a dangling selection', () => {
     const state = buildNeuroglancerState([]);
     assert.deepEqual(state.layers, []);
     assert.equal(state.selectedLayer, undefined);
@@ -92,10 +92,10 @@ describe('Neuroglancer state', () => {
 });
 
 describe('viewer layout', () => {
-  const planar = (overrides: Partial<DiscoveredDataset> = {}) =>
-    dataset({ axes: ['c', 'y', 'x'], shape: [2, 64, 64], ...overrides });
-  const volumetric = (overrides: Partial<DiscoveredDataset> = {}) =>
-    dataset({ axes: ['z', 'y', 'x'], shape: [32, 64, 64], ...overrides });
+  const planar = (overrides: Partial<DiscoveredImage> = {}) =>
+    image({ axes: ['c', 'y', 'x'], shape: [2, 64, 64], ...overrides });
+  const volumetric = (overrides: Partial<DiscoveredImage> = {}) =>
+    image({ axes: ['z', 'y', 'x'], shape: [32, 64, 64], ...overrides });
 
   it('uses a single xy panel when there is no z axis', () => {
     assert.equal(isVolumetric(planar()), false);
@@ -112,31 +112,31 @@ describe('viewer layout', () => {
   it('treats a singleton z axis as planar', () => {
     // A 2-D image stored as 5-D, which orthogonal panels would render as two
     // degenerate single-voxel strips.
-    const flat = dataset({ axes: ['t', 'c', 'z', 'y', 'x'], shape: [1, 3, 1, 512, 512] });
+    const flat = image({ axes: ['t', 'c', 'z', 'y', 'x'], shape: [1, 3, 1, 512, 512] });
     assert.equal(isVolumetric(flat), false);
     assert.equal(chooseLayout([flat]), 'xy');
   });
 
-  it('keeps orthogonal panels when any dataset in the set has depth', () => {
+  it('keeps orthogonal panels when any image in the set has depth', () => {
     // The layout belongs to the viewer, not the layer, so a mixed set has to
     // pick the one that still displays planar layers correctly.
     assert.equal(chooseLayout([planar(), volumetric()]), '4panel-alt');
   });
 
   it('assumes depth when axes metadata is absent', () => {
-    // OME-NGFF before 0.4 declares no axes and was always 5-D.
-    const legacy = dataset({ axes: undefined, shape: undefined, omeZarrVersion: '0.3' });
+    // OME-Zarr before 0.4 declares no axes and was always 5-D.
+    const legacy = image({ axes: undefined, shape: undefined, omeZarrVersion: '0.3' });
     assert.equal(isVolumetric(legacy), true);
     assert.equal(chooseLayout([legacy]), '4panel-alt');
   });
 
   it('ignores a shape that does not line up with the axes', () => {
-    const mismatched = dataset({ axes: ['z', 'y', 'x'], shape: [64, 64] });
+    const mismatched = image({ axes: ['z', 'y', 'x'], shape: [64, 64] });
     assert.equal(isVolumetric(mismatched), true);
   });
 
   it('matches a capitalised axis name', () => {
-    assert.equal(isVolumetric(dataset({ axes: ['Z', 'Y', 'X'], shape: [8, 8, 8] })), true);
+    assert.equal(isVolumetric(image({ axes: ['Z', 'Y', 'X'], shape: [8, 8, 8] })), true);
   });
 
   it('carries the chosen layout into the Zarrcade viewer template', () => {
@@ -152,19 +152,19 @@ describe('viewer layout', () => {
 });
 
 describe('gallery previews', () => {
-  const cell = (overrides: Partial<DiscoveredDataset>) => {
-    const row = buildCatalogCsv([dataset(overrides)]).trimEnd().split('\n')[1];
+  const cell = (overrides: Partial<DiscoveredImage>) => {
+    const row = buildCatalogCsv([image(overrides)]).trimEnd().split('\n')[1];
     return row.split(',')[2];
   };
 
-  it('links a generated preview when the dataset has no thumbnail of its own', () => {
+  it('links a generated preview when the image has no thumbnail of its own', () => {
     assert.equal(
       cell({ previewable: true, hasConventionThumbnail: false }),
       'https://example.test/portal/_preview/m1/img.ome.zarr',
     );
   });
 
-  it('stands aside when the dataset ships its own thumbnails', () => {
+  it('stands aside when the image ships its own thumbnails', () => {
     // Left empty on purpose: Zarrcade then reads the zarr thumbnails
     // convention itself and picks the best-sized entry.
     assert.equal(cell({ previewable: false, hasConventionThumbnail: true }), '');
@@ -180,11 +180,11 @@ describe('gallery previews', () => {
   });
 
   it('tells Zarrcade which column holds the thumbnail, and hides it', () => {
-    const config = buildZarrcadeConfig('catalog.csv', 'T', [dataset()]) as {
+    const config = buildZarrcadeConfig('catalog.csv', 'T', [image()]) as {
       data: { thumbnailColumn: string };
       display: { hideColumns: string[] };
     };
-    const header = buildCatalogCsv([dataset()]).split('\n')[0].split(',');
+    const header = buildCatalogCsv([image()]).split('\n')[0].split(',');
 
     assert.ok(header.includes(config.data.thumbnailColumn), 'column exists in the catalog');
     assert.ok(
@@ -195,43 +195,44 @@ describe('gallery previews', () => {
 });
 
 describe('Zarrcade catalog', () => {
-  it('emits a header and one row per dataset', () => {
-    const csv = buildCatalogCsv([dataset(), dataset({ name: 'second', id: 'm1:second' })]);
+  it('emits a header and one row per image', () => {
+    const csv = buildCatalogCsv([image(), image({ name: 'second', id: 'm1:second' })]);
     const lines = csv.trimEnd().split('\n');
     assert.equal(lines.length, 3);
     assert.equal(
       lines[0],
-      'Name,path,thumbnail,Folder,Location,NGFF Version,Zarr Format,Axes,Shape,Data Type,Levels',
+      'Name,path,thumbnail,Folder,Location,OME-Zarr Version,Axes,Shape,Data Type,Resolution Levels',
     );
     assert.ok(lines[1].startsWith('img,https://example.test/portal/_local/m1/img.ome.zarr/,'));
   });
 
   it('quotes fields containing commas or quotes', () => {
-    const csv = buildCatalogCsv([dataset({ name: 'a,b "c"' })]);
+    const csv = buildCatalogCsv([image({ name: 'a,b "c"' })]);
     const row = csv.trimEnd().split('\n')[1];
     assert.ok(row.startsWith('"a,b ""c""",'), row);
   });
 
   it('renders missing metadata as empty cells rather than "undefined"', () => {
     const csv = buildCatalogCsv([
-      dataset({ axes: undefined, shape: undefined, dtype: undefined, scaleCount: undefined, omeZarrVersion: undefined }),
+      image({ axes: undefined, shape: undefined, dtype: undefined, levelCount: undefined, omeZarrVersion: undefined }),
     ]);
     const row = csv.trimEnd().split('\n')[1];
     assert.doesNotMatch(row, /undefined/);
-    assert.ok(row.includes(',unknown,'), row);
+    // Undeclared version: the layout on disk still rules out v5.
+    assert.ok(row.includes(',v4 or earlier,'), row);
   });
 
   it('configures Zarrcade to read the column the catalog actually writes', () => {
     const config = buildZarrcadeConfig(
       'https://example.test/portal/_session/s1/catalog.csv',
       'T',
-      [dataset()],
+      [image()],
     ) as {
       dataUrl: string;
       data: { pathColumn: string };
       display: { hideColumns: string[]; titleColumn: string };
     };
-    const header = buildCatalogCsv([dataset()]).split('\n')[0].split(',');
+    const header = buildCatalogCsv([image()]).split('\n')[0].split(',');
 
     assert.ok(header.includes(config.data.pathColumn));
     assert.ok(header.includes(config.display.titleColumn));
@@ -240,7 +241,7 @@ describe('Zarrcade catalog', () => {
   });
 
   it('offers only viewers that can reach a local URL', () => {
-    const config = buildZarrcadeConfig('catalog.csv', 'T', [dataset()]) as {
+    const config = buildZarrcadeConfig('catalog.csv', 'T', [image()]) as {
       viewers: Array<{ name: string; urlTemplate: string; enabled: boolean }>;
     };
     for (const viewer of config.viewers.filter((v) => v.enabled)) {
@@ -254,7 +255,7 @@ describe('Zarrcade catalog', () => {
   it('produces a template Zarrcade can substitute into a working viewer URL', () => {
     // The end-to-end contract: Zarrcade fills in the template with a row's
     // path, and the result must be a Neuroglancer URL for that exact source.
-    const url = zarrcadeViewerUrl(neuroglancerUrlTemplate([dataset()]), dataset().virtualUrl);
+    const url = zarrcadeViewerUrl(neuroglancerUrlTemplate([image()]), image().virtualUrl);
 
     assert.ok(url.startsWith('https://example.test/portal/neuroglancer/index.html#!'), url);
     const state = JSON.parse(url.slice(url.indexOf('#!') + 2));

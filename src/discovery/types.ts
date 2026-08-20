@@ -2,24 +2,34 @@
  * Types for the OME-Zarr discovery layer.
  */
 
+/**
+ * Which OME-Zarr layout a group is stored in.
+ *
+ * `v5` keeps all metadata in a single `zarr.json`; `v4` — and every version
+ * before it — spreads it across `.zgroup`, `.zarray` and `.zattrs`. The two
+ * are told apart by which of those files exists, so this says what the reader
+ * found on disk, not what the metadata claims to be.
+ */
+export type OmeZarrLayout = 'v4' | 'v5';
+
 /** A multiscale OME-Zarr image found inside a mounted directory. */
-export interface DiscoveredDataset {
+export interface DiscoveredImage {
   /** Stable within a session: `<mount-id>:<relative-path>`. */
   id: string;
   /** Display name, from the directory name with `.ome.zarr`/`.zarr` stripped. */
   name: string;
-  /** Path relative to the mount root; empty when the mount root is itself a dataset. */
+  /** Path relative to the mount root; empty when the mount root is itself an image. */
   relativePath: string;
   /** Same-origin URL served by the worker, always with a trailing slash. */
   virtualUrl: string;
-  /** OME-NGFF version string, e.g. `0.4` or `0.5`, when the metadata declares one. */
+  /** OME-Zarr version string, e.g. `0.4` or `0.5`, when the metadata declares one. */
   omeZarrVersion?: string;
 
   /* --- context and best-effort metadata, used by the gallery --- */
   mountId: string;
   mountName: string;
-  /** Zarr specification version of the group: 2 or 3. */
-  zarrFormat: 2 | 3;
+  /** The OME-Zarr layout the group is stored in. */
+  layout: OmeZarrLayout;
   /** Axis names of the multiscale, e.g. `['t','c','z','y','x']`. */
   axes?: string[];
   /** Shape of the highest-resolution array. */
@@ -27,15 +37,15 @@ export interface DiscoveredDataset {
   /** Data type of the highest-resolution array, e.g. `uint16`. */
   dtype?: string;
   /** Number of resolution levels. */
-  scaleCount?: number;
+  levelCount?: number;
   /**
-   * The dataset advertises its own thumbnails (zarr thumbnails convention).
+   * The image advertises its own thumbnails (Zarr `thumbnails` convention).
    * Zarrcade reads those directly, so no preview needs generating.
    */
   hasConventionThumbnail?: boolean;
   /**
-   * The coarsest pyramid level is small enough to project into a preview.
-   * False when there is no pyramid metadata, or the smallest level is still
+   * The lowest-resolution level is small enough to project into a preview.
+   * False when there is no multiscale metadata, or the smallest level is still
    * too large to read whole — see `src/preview/policy.ts`.
    */
   previewable?: boolean;
@@ -44,7 +54,7 @@ export interface DiscoveredDataset {
 export type DiscoveryNoteKind =
   /** Something recognisable that this portal cannot open. */
   | 'unsupported'
-  /** Something deliberately not treated as a dataset. */
+  /** Something deliberately not treated as an image. */
   | 'skipped'
   /** Metadata that exists but could not be read. */
   | 'error'
@@ -59,7 +69,7 @@ export interface DiscoveryNote {
 }
 
 export interface DiscoveryResult {
-  datasets: DiscoveredDataset[];
+  images: DiscoveredImage[];
   notes: DiscoveryNote[];
   directoriesScanned: number;
 }
@@ -71,21 +81,21 @@ export interface DiscoveryResult {
  */
 export interface DiscoveryLimits {
   maxDepth: number;
-  maxDatasets: number;
+  maxImages: number;
   maxDirectories: number;
   maxEntriesPerDirectory: number;
 }
 
 export const DEFAULT_LIMITS: DiscoveryLimits = {
   maxDepth: 10,
-  maxDatasets: 1000,
+  maxImages: 1000,
   maxDirectories: 20000,
   maxEntriesPerDirectory: 5000,
 };
 
 export interface DiscoveryProgress {
   directoriesScanned: number;
-  datasetsFound: number;
+  imagesFound: number;
   currentPath: string;
 }
 

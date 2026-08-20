@@ -117,6 +117,13 @@ main {
 
 /* --------------------------------------------------------------- masthead */
 
+.masthead-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
 .masthead h1 {
   margin: 0 0 0.5rem;
   font-size: clamp(1.9rem, 1.2rem + 2vw, 2.5rem);
@@ -157,7 +164,6 @@ main {
   translate: 0 -0.15em;
 }
 
-.assurance strong { color: var(--text); font-weight: 550; }
 
 /* ------------------------------------------------------------- drop zones */
 
@@ -226,6 +232,148 @@ main {
   font-size: 0.92rem;
   color: var(--text-muted);
   text-wrap: pretty;
+}
+
+/* ----------------------------------------------------------------- about */
+
+/*
+ * A quiet control: it should be findable at the top right, and otherwise stay
+ * out of the way of the two things the page is actually for.
+ */
+.about-button {
+  flex: none;
+  margin-top: 0.4rem;
+  padding: 0.3rem 0.8rem;
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease;
+}
+
+.about-button:hover { border-color: var(--border-strong); color: var(--text); }
+
+.about {
+  width: min(38rem, calc(100vw - 2.5rem));
+  max-height: calc(100vh - 4rem);
+  margin: auto;
+  padding: 1.75rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 24px 60px -30px rgb(0 0 0 / 55%);
+}
+
+.about::backdrop {
+  background: rgb(8 9 11 / 55%);
+  backdrop-filter: blur(2px);
+}
+
+.about-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.about-head h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.about-close {
+  padding: 0 0.3rem;
+  font: inherit;
+  font-size: 1.25rem;
+  line-height: 1;
+  color: var(--text-muted);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.about-close:hover { color: var(--text); }
+
+.about-section + .about-section {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.about-section h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.about-section p {
+  margin: 0.5rem 0 0;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  text-wrap: pretty;
+}
+
+.about-section ul {
+  margin: 0.6rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.about-section li {
+  padding-left: 1rem;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  text-wrap: pretty;
+  /* A hairline tick instead of a bullet: quieter, and it lines the list up. */
+  background: linear-gradient(var(--border-strong), var(--border-strong)) 0 0.65em / 5px 1px no-repeat;
+}
+
+.about-section li strong { color: var(--text); font-weight: 550; }
+
+/* Link, then one line on why it is worth the click. */
+.about-links { gap: 0.85rem; }
+
+.about-links li {
+  display: grid;
+  gap: 0.1rem;
+  padding-left: 0;
+  background: none;
+}
+
+.about-links a { font-size: 0.9rem; }
+.about-links span { font-size: 0.85rem; color: var(--text-muted); }
+
+.about code {
+  padding: 0.1em 0.35em;
+  font-family: var(--mono);
+  font-size: 0.86em;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.about-tree {
+  margin: 0.9rem 0 0;
+  padding: 0.85rem 1rem;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  line-height: 1.7;
+  color: var(--text-muted);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
 }
 
 /* ---------------------------------------------------------------- buttons */

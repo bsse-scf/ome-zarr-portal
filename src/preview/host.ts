@@ -13,8 +13,8 @@ import type { RenderReply, RenderRequest } from './worker';
 
 /**
  * Two workers: enough to keep previews arriving while one is busy with a
- * larger dataset, few enough that a page of 50 gallery cards cannot spike
- * memory by decompressing dozens of pyramid levels at once.
+ * larger image, few enough that a page of 50 gallery cards cannot spike
+ * memory by decompressing dozens of resolution levels at once.
  */
 const POOL_SIZE = 2;
 

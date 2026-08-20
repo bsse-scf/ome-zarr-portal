@@ -1,7 +1,7 @@
 /**
  * Builds an on-disk tree exercising the layouts discovery has to tell apart:
- * Zarr v2 and v3 multiscales, resolution levels that must NOT be mistaken for
- * datasets, a bare array, an HCS plate, and assorted noise.
+ * OME-Zarr v4 and v5 multiscales, resolution levels that must NOT be mistaken for
+ * images, a bare array, an HCS plate, and assorted noise.
  */
 import { promises as fs } from 'node:fs';
 import { mkdtemp } from 'node:fs/promises';
@@ -47,7 +47,7 @@ async function makeV2Image(root: string, levels = 2): Promise<void> {
       filters: null,
     });
     // Chunk keys use nested directories, the shape that must never be walked
-    // into as if it were a dataset hierarchy.
+    // into as if it were an image hierarchy.
     for (let channel = 0; channel < 2; channel += 1) {
       const chunkPath = join(root, String(level), String(channel), '0', '0');
       await fs.mkdir(join(chunkPath, '..'), { recursive: true });
@@ -103,10 +103,10 @@ export interface Fixture {
 export async function makeFixture(): Promise<Fixture> {
   const root = await mkdtemp(join(tmpdir(), 'ome-zarr-portal-'));
 
-  // A dataset directly under the drop root.
+  // An image directly under the drop root.
   await makeV2Image(join(root, 'v2-image.ome.zarr'));
 
-  // A dataset buried a few plain folders down.
+  // An image buried a few plain folders down.
   await makeV3Image(join(root, 'nested', 'deeper', 'v3-image.ome.zarr'));
 
   // A bare array: valid Zarr, but not an OME-Zarr image.
@@ -138,9 +138,9 @@ export async function makeFixture(): Promise<Fixture> {
   });
   await makeV2Image(join(plate, 'A', '1', '0'), 1);
 
-  // A pyramid whose coarsest level is still far too large to project.
+  // A multiscale whose lowest-resolution level is still too large to project.
   // Only metadata is needed: eligibility never reads chunk data.
-  const big = join(root, 'big-pyramid.ome.zarr');
+  const big = join(root, 'big-multiscale.ome.zarr');
   await writeJson(join(big, '.zgroup'), { zarr_format: 2 });
   await writeJson(join(big, '.zattrs'), {
     multiscales: [
@@ -165,7 +165,7 @@ export async function makeFixture(): Promise<Fixture> {
     filters: null,
   });
 
-  // A long time series whose coarsest level is huge in total but tiny per
+  // A long time series whose lowest-resolution level is huge in total but tiny per
   // timepoint. Only the first timepoint is ever read, so this is previewable
   // and the summed size must not be what decides it.
   const series = join(root, 'time-series.ome.zarr');
@@ -195,7 +195,7 @@ export async function makeFixture(): Promise<Fixture> {
     filters: null,
   });
 
-  // A dataset that ships its own thumbnails via the zarr convention.
+  // An image that ships its own thumbnails via the zarr convention.
   const thumbed = join(root, 'thumbed.ome.zarr');
   await writeJson(join(thumbed, 'zarr.json'), {
     zarr_format: 3,
@@ -228,7 +228,7 @@ export async function makeFixture(): Promise<Fixture> {
   });
 
   // Noise that must be ignored.
-  await fs.writeFile(join(root, 'README.txt'), 'not a dataset');
+  await fs.writeFile(join(root, 'README.txt'), 'not an image');
   await fs.mkdir(join(root, '__MACOSX'), { recursive: true });
   await fs.mkdir(join(root, '.hidden'), { recursive: true });
   await fs.writeFile(join(root, '.hidden', 'secret'), 'ignored');

@@ -1,20 +1,21 @@
 /**
- * Reading and interpreting Zarr / OME-NGFF metadata from a directory handle.
+ * Reading and interpreting Zarr / OME-Zarr metadata from a directory handle.
  *
- * Kept separate from the traversal so the rules about "what counts as a
- * dataset" are in one readable place. Handles both layouts in current use:
+ * Kept separate from the traversal so the rules about "what counts as an
+ * image" are in one readable place. Handles both layouts in current use:
  *
- *   Zarr v2 (OME-NGFF <= 0.4): `.zgroup` / `.zarray` / `.zattrs`, with
+ *   OME-Zarr v4 and earlier: `.zgroup` / `.zarray` / `.zattrs`, with
  *     `multiscales` at the top level of `.zattrs`.
- *   Zarr v3 (OME-NGFF >= 0.5): a single `zarr.json` whose `node_type` says
+ *   OME-Zarr v5: a single `zarr.json` whose `node_type` says
  *     group or array, with `multiscales` nested under `attributes.ome`.
  */
+import type { OmeZarrLayout } from './types';
 
 export type JsonObject = Record<string, unknown>;
 
 export type ZarrNode =
-  | { kind: 'array'; format: 2 | 3 }
-  | { kind: 'group'; format: 2 | 3; attributes: JsonObject }
+  | { kind: 'array'; layout: OmeZarrLayout }
+  | { kind: 'group'; layout: OmeZarrLayout; attributes: JsonObject }
   /** No Zarr metadata here: an ordinary directory. */
   | { kind: 'none' };
 
@@ -68,21 +69,21 @@ export async function readJsonFile(
 export async function readZarrNode(directory: FileSystemDirectoryHandle): Promise<ZarrNode> {
   const v3 = await readJsonFile(directory, 'zarr.json');
   if (v3) {
-    // `node_type` is required in Zarr v3; default to group for tolerance.
+    // `node_type` is required by the v5 layout; default to group for tolerance.
     const nodeType = typeof v3.node_type === 'string' ? v3.node_type : 'group';
-    if (nodeType === 'array') return { kind: 'array', format: 3 };
+    if (nodeType === 'array') return { kind: 'array', layout: 'v5' };
     const attributes = isObject(v3.attributes) ? v3.attributes : {};
-    return { kind: 'group', format: 3, attributes };
+    return { kind: 'group', layout: 'v5', attributes };
   }
 
   if (await readJsonFile(directory, '.zarray')) {
-    return { kind: 'array', format: 2 };
+    return { kind: 'array', layout: 'v4' };
   }
 
   const zgroup = await readJsonFile(directory, '.zgroup');
   const zattrs = await readJsonFile(directory, '.zattrs');
   if (zgroup || zattrs) {
-    return { kind: 'group', format: 2, attributes: zattrs ?? {} };
+    return { kind: 'group', layout: 'v4', attributes: zattrs ?? {} };
   }
 
   return { kind: 'none' };
@@ -91,7 +92,7 @@ export async function readZarrNode(directory: FileSystemDirectoryHandle): Promis
 /**
  * The attribute bag OME metadata lives in.
  *
- * NGFF 0.5 nests everything under an `ome` key; 0.4 and earlier put it at the
+ * OME-Zarr 0.5 nests everything under an `ome` key; 0.4 and earlier put it at the
  * top level of `.zattrs`. Some writers emit the 0.4 shape inside a v3
  * `zarr.json`, so both are checked regardless of Zarr version.
  */
@@ -105,16 +106,16 @@ function omeAttributes(node: { attributes: JsonObject }): JsonObject[] {
 export interface MultiscaleInfo {
   /** Version declared by the metadata, if any. */
   version?: string;
-  /** Axis names in order, when the metadata declares axes (NGFF >= 0.3). */
+  /** Axis names in order, when the metadata declares axes (OME-Zarr >= 0.3). */
   axes?: string[];
-  /** Relative array paths, coarsest last. */
+  /** Relative paths of the resolution levels, highest resolution first. */
   paths: string[];
   name?: string;
 }
 
 /**
  * Extract multiscale information, or null if this group is not a multiscale
- * image. Presence of `multiscales` is what makes a group a dataset root.
+ * image. Presence of `multiscales` is what makes a group an image root.
  */
 export function readMultiscale(node: { attributes: JsonObject }): MultiscaleInfo | null {
   for (const bag of omeAttributes(node)) {
@@ -134,7 +135,7 @@ export function readMultiscale(node: { attributes: JsonObject }): MultiscaleInfo
     let axes: string[] | undefined;
     if (Array.isArray(first.axes)) {
       const names = first.axes.map((axis) =>
-        // NGFF >= 0.4 uses objects; 0.3 used bare strings.
+        // OME-Zarr >= 0.4 uses objects; 0.3 used bare strings.
         typeof axis === 'string' ? axis : isObject(axis) && typeof axis.name === 'string' ? axis.name : '?',
       );
       if (names.length > 0) axes = names;
@@ -160,14 +161,17 @@ export function readMultiscale(node: { attributes: JsonObject }): MultiscaleInfo
 }
 
 /**
- * True if the group advertises thumbnails via the zarr thumbnails convention.
+ * True if the group advertises thumbnails via the Zarr `thumbnails` convention.
  *
  * Zarrcade reads these itself and picks the best-sized entry, so when they are
  * present the portal steps aside rather than generating a preview. Matches
- * upstream in consulting only `zarr.json`, i.e. Zarr v3.
+ * upstream in consulting only `zarr.json`, i.e. OME-Zarr v5.
  */
-export function hasThumbnailsConvention(node: { format: 2 | 3; attributes: JsonObject }): boolean {
-  if (node.format !== 3) return false;
+export function hasThumbnailsConvention(node: {
+  layout: OmeZarrLayout;
+  attributes: JsonObject;
+}): boolean {
+  if (node.layout !== 'v5') return false;
   const thumbnails = node.attributes.thumbnails;
   return Array.isArray(thumbnails) && thumbnails.length > 0;
 }

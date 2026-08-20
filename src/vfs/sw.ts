@@ -214,7 +214,7 @@ function mountIdFor(root: FileSystemDirectoryHandle): string {
 /* --------------------------------------------------------------- previews */
 
 /**
- * Rendered previews, keyed by mount and dataset path.
+ * Rendered previews, keyed by mount and image path.
  *
  * Zarrcade preloads the thumbnail for every card on a page at once — 50 by
  * default — and re-renders them on pagination and filtering. Sharing the

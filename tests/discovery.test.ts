@@ -3,7 +3,7 @@ import { after, before, describe, it } from 'node:test';
 import { join } from 'node:path';
 
 import { discoverInMount } from '../src/discovery/discover';
-import type { DiscoveredDataset, DiscoveryResult } from '../src/discovery/types';
+import type { DiscoveredImage, DiscoveryResult } from '../src/discovery/types';
 import type { Mount } from '../src/mounts/registry';
 import { makeFixture, type Fixture } from './fixtures';
 import { directoryHandle } from './node-handles';
@@ -15,9 +15,9 @@ function mountFor(path: string, name: string): Mount {
   return { id: 'm1', name, handle: directoryHandle(path, name), createdAt: 0 };
 }
 
-function byName(result: DiscoveryResult, name: string): DiscoveredDataset {
-  const found = result.datasets.find((dataset) => dataset.name === name);
-  assert.ok(found, `expected a dataset named ${name}, got ${result.datasets.map((d) => d.name).join(', ')}`);
+function byName(result: DiscoveryResult, name: string): DiscoveredImage {
+  const found = result.images.find((image) => image.name === name);
+  assert.ok(found, `expected an image named ${name}, got ${result.images.map((d) => d.name).join(', ')}`);
   return found;
 }
 
@@ -36,9 +36,9 @@ describe('OME-Zarr discovery', () => {
 
   it('finds every multiscale image and nothing else', () => {
     assert.deepEqual(
-      result.datasets.map((dataset) => dataset.relativePath).sort(),
+      result.images.map((image) => image.relativePath).sort(),
       [
-        'big-pyramid.ome.zarr',
+        'big-multiscale.ome.zarr',
         'nested/deeper/v3-image.ome.zarr',
         'plate.ome.zarr/A/1/0',
         'thumbed.ome.zarr',
@@ -48,14 +48,14 @@ describe('OME-Zarr discovery', () => {
     );
   });
 
-  it('names a dataset by its path below the drop root, not by its leaf', () => {
+  it('names an image by its path below the drop root, not by its leaf', () => {
     // A leaf name is not unique: every field of view in a plate is called `0`.
     // Zarr suffixes are dropped from every segment, including the middle ones
     // a bioformats2raw layout puts there.
     assert.deepEqual(
-      result.datasets.map((dataset) => dataset.name).sort(),
+      result.images.map((image) => image.name).sort(),
       [
-        'big-pyramid',
+        'big-multiscale',
         'nested/deeper/v3-image',
         'plate/A/1/0',
         'thumbed',
@@ -63,16 +63,16 @@ describe('OME-Zarr discovery', () => {
         'v2-image',
       ],
     );
-    assert.equal(new Set(result.datasets.map((d) => d.name)).size, result.datasets.length);
+    assert.equal(new Set(result.images.map((d) => d.name)).size, result.images.length);
   });
 
-  it('never reports a dataset nested inside another dataset', () => {
+  it('never reports an image nested inside another image', () => {
     // The v2 image has levels `0` and `1`, each a Zarr array with chunk
-    // directories below it; none may surface as a dataset of its own. Testing
+    // directories below it; none may surface as an image of its own. Testing
     // containment rather than path shape also covers a plate's fields of view,
     // which legitimately sit at paths like `A/1/0`.
-    for (const outer of result.datasets) {
-      for (const inner of result.datasets) {
+    for (const outer of result.images) {
+      for (const inner of result.images) {
         if (outer === inner) continue;
         assert.equal(
           inner.relativePath.startsWith(`${outer.relativePath}/`),
@@ -84,38 +84,38 @@ describe('OME-Zarr discovery', () => {
   });
 
   it('stops at the multiscale root instead of walking its chunk tree', () => {
-    // 12 folders: the drop root, three dataset roots, and the plain folders
+    // 12 folders: the drop root, three image roots, and the plain folders
     // leading to them. If the walk descended into resolution levels or chunk
     // directories this number would be far larger.
     assert.ok(
       result.directoriesScanned < 25,
-      `scanned ${result.directoriesScanned} folders, expected the walk to stop at dataset roots`,
+      `scanned ${result.directoriesScanned} folders, expected the walk to stop at image roots`,
     );
   });
 
   it('reads v2 metadata, including axes and array shape', () => {
-    const dataset = byName(result, 'v2-image');
-    assert.equal(dataset.zarrFormat, 2);
-    assert.equal(dataset.omeZarrVersion, '0.4');
-    assert.deepEqual(dataset.axes, ['c', 'y', 'x']);
-    assert.deepEqual(dataset.shape, [2, 64, 64]);
-    assert.equal(dataset.dtype, '<u2');
-    assert.equal(dataset.scaleCount, 2);
+    const image = byName(result, 'v2-image');
+    assert.equal(image.layout, 'v4');
+    assert.equal(image.omeZarrVersion, '0.4');
+    assert.deepEqual(image.axes, ['c', 'y', 'x']);
+    assert.deepEqual(image.shape, [2, 64, 64]);
+    assert.equal(image.dtype, '<u2');
+    assert.equal(image.levelCount, 2);
   });
 
   it('reads v3 metadata nested under attributes.ome', () => {
-    const dataset = byName(result, 'nested/deeper/v3-image');
-    assert.equal(dataset.zarrFormat, 3);
-    assert.equal(dataset.omeZarrVersion, '0.5');
-    assert.deepEqual(dataset.axes, ['z', 'y', 'x']);
-    assert.deepEqual(dataset.shape, [8, 32, 32]);
-    assert.equal(dataset.dtype, 'uint8');
+    const image = byName(result, 'nested/deeper/v3-image');
+    assert.equal(image.layout, 'v5');
+    assert.equal(image.omeZarrVersion, '0.5');
+    assert.deepEqual(image.axes, ['z', 'y', 'x']);
+    assert.deepEqual(image.shape, [8, 32, 32]);
+    assert.equal(image.dtype, 'uint8');
   });
 
   it('builds virtual URLs with a trailing slash', () => {
-    for (const dataset of result.datasets) {
-      assert.ok(dataset.virtualUrl.endsWith('/'), dataset.virtualUrl);
-      assert.equal(dataset.virtualUrl, `${urlBuilder('m1', dataset.relativePath)}/`);
+    for (const image of result.images) {
+      assert.ok(image.virtualUrl.endsWith('/'), image.virtualUrl);
+      assert.equal(image.virtualUrl, `${urlBuilder('m1', image.relativePath)}/`);
     }
   });
 
@@ -128,7 +128,7 @@ describe('OME-Zarr discovery', () => {
 
   it('ignores a bare array without reporting it below the drop root', () => {
     assert.equal(
-      result.datasets.some((dataset) => dataset.relativePath.includes('bare-array')),
+      result.images.some((image) => image.relativePath.includes('bare-array')),
       false,
     );
     assert.equal(
@@ -137,15 +137,15 @@ describe('OME-Zarr discovery', () => {
     );
   });
 
-  it('treats a dropped dataset root as a single dataset', async () => {
+  it('treats a dropped image root as a single image', async () => {
     const single = await discoverInMount(
       mountFor(join(fixture.root, 'v2-image.ome.zarr'), 'v2-image.ome.zarr'),
       { urlBuilder },
     );
-    assert.equal(single.datasets.length, 1);
-    assert.equal(single.datasets[0].relativePath, '');
-    assert.equal(single.datasets[0].name, 'v2-image');
-    assert.equal(single.datasets[0].virtualUrl, 'https://example.test/_local/m1/');
+    assert.equal(single.images.length, 1);
+    assert.equal(single.images[0].relativePath, '');
+    assert.equal(single.images[0].name, 'v2-image');
+    assert.equal(single.images[0].virtualUrl, 'https://example.test/_local/m1/');
   });
 
   it('reports a dropped bare array as unsupported', async () => {
@@ -153,46 +153,46 @@ describe('OME-Zarr discovery', () => {
       mountFor(join(fixture.root, 'bare-array.zarr'), 'bare-array.zarr'),
       { urlBuilder },
     );
-    assert.equal(single.datasets.length, 0);
+    assert.equal(single.images.length, 0);
     assert.equal(single.notes.length, 1);
     assert.equal(single.notes[0].kind, 'unsupported');
     assert.match(single.notes[0].message, /bare Zarr array/);
   });
 
-  it('marks a dataset previewable when its coarsest level is small', () => {
+  it('marks an image previewable when its lowest-resolution level is small', () => {
     // v2-image bottoms out at 2 x 32 x 32.
-    const dataset = byName(result, 'v2-image');
-    assert.equal(dataset.previewable, true);
-    assert.equal(dataset.hasConventionThumbnail, false);
+    const image = byName(result, 'v2-image');
+    assert.equal(image.previewable, true);
+    assert.equal(image.hasConventionThumbnail, false);
   });
 
-  it('refuses a preview when the coarsest level is still huge', () => {
+  it('refuses a preview when the lowest-resolution level is still huge', () => {
     // 8192 x 8192 uint16 exceeds both the byte budget and the extent cap, and
     // the judgement is made from metadata alone — no chunk is read.
-    const dataset = byName(result, 'big-pyramid');
-    assert.equal(dataset.previewable, false);
+    const image = byName(result, 'big-multiscale');
+    assert.equal(image.previewable, false);
   });
 
   it('judges a time series by one timepoint, not by the whole series', () => {
     // 200 x 3 x 256 x 256 uint16 is 78 MB in total but 384 KB per timepoint,
     // and only the first timepoint is ever read.
-    const dataset = byName(result, 'time-series');
-    assert.equal(dataset.previewable, true);
+    const image = byName(result, 'time-series');
+    assert.equal(image.previewable, true);
   });
 
-  it('defers to a dataset that ships its own thumbnails', () => {
-    const dataset = byName(result, 'thumbed');
-    assert.equal(dataset.hasConventionThumbnail, true);
+  it('defers to an image that ships its own thumbnails', () => {
+    const image = byName(result, 'thumbed');
+    assert.equal(image.hasConventionThumbnail, true);
     // No preview needed: Zarrcade reads the convention itself.
-    assert.equal(dataset.previewable, false);
+    assert.equal(image.previewable, false);
   });
 
-  it('honours the dataset limit and reports it', async () => {
+  it('honours the image limit and reports it', async () => {
     const limited = await discoverInMount(mountFor(fixture.root, 'drop'), {
       urlBuilder,
-      limits: { maxDatasets: 1 },
+      limits: { maxImages: 1 },
     });
-    assert.equal(limited.datasets.length, 1);
+    assert.equal(limited.images.length, 1);
     assert.ok(limited.notes.some((note) => note.kind === 'limit'));
   });
 
@@ -202,8 +202,8 @@ describe('OME-Zarr discovery', () => {
       limits: { maxDepth: 1 },
     });
     assert.deepEqual(
-      shallow.datasets.map((dataset) => dataset.relativePath).sort(),
-      ['big-pyramid.ome.zarr', 'thumbed.ome.zarr', 'time-series.ome.zarr', 'v2-image.ome.zarr'],
+      shallow.images.map((image) => image.relativePath).sort(),
+      ['big-multiscale.ome.zarr', 'thumbed.ome.zarr', 'time-series.ome.zarr', 'v2-image.ome.zarr'],
     );
     assert.ok(shallow.notes.some((note) => note.kind === 'limit'));
   });

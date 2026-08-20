@@ -4,12 +4,12 @@
  * Given mounted directories, find every multiscale OME-Zarr image below them
  * and return a normalized list with same-origin URLs. The traversal is
  * format-driven rather than name-driven: a `.ome.zarr` suffix is a convention,
- * not a guarantee, and plenty of valid datasets do not use it.
+ * not a guarantee, and plenty of valid images do not use it.
  *
  * Two rules keep the walk correct and cheap:
  *
- *  1. A group carrying `multiscales` IS the dataset. The walk stops there, so
- *     the resolution levels beneath it are never mistaken for datasets of
+ *  1. A group carrying `multiscales` IS the image. The walk stops there, so
+ *     the resolution levels beneath it are never mistaken for images of
  *     their own.
  *  2. A Zarr array is never descended into. Its children are chunk files and
  *     chunk directories, and enumerating them could mean millions of entries.
@@ -30,18 +30,19 @@ import {
 } from './zarr-metadata';
 import {
   DEFAULT_LIMITS,
-  type DiscoveredDataset,
+  type DiscoveredImage,
   type DiscoveryLimits,
   type DiscoveryNote,
   type DiscoveryOptions,
   type DiscoveryResult,
+  type OmeZarrLayout,
 } from './types';
 
 /** Entries that are never part of a Zarr hierarchy. */
 const IGNORED_NAMES = new Set(['__MACOSX', '.DS_Store', 'Thumbs.db', '.git']);
 
 function isIgnored(name: string): boolean {
-  // Dotfiles are skipped as directories, but Zarr v2's own `.zgroup`/`.zattrs`
+  // Dotfiles are skipped as directories, but the v4 layout's own `.zgroup`/`.zattrs`
   // are files and are read by name, so nothing needed is lost here.
   return IGNORED_NAMES.has(name) || name.startsWith('.');
 }
@@ -51,7 +52,7 @@ function ensureTrailingSlash(url: string): string {
 }
 
 /**
- * Display name: the dataset's path relative to the top of its mount.
+ * Display name: the image's path relative to the top of its mount.
  *
  * A leaf name alone is not unique. Every field of view in a plate is called
  * `0`, and conversion pipelines routinely emit the same file name under each
@@ -83,7 +84,7 @@ interface WalkContext {
   mount: Mount;
   buildUrl: (mountId: string, relativePath: string) => string;
   limits: DiscoveryLimits;
-  datasets: DiscoveredDataset[];
+  images: DiscoveredImage[];
   notes: DiscoveryNote[];
   directoriesScanned: number;
   limitReported: Set<string>;
@@ -102,7 +103,7 @@ function reportLimit(context: WalkContext, key: string, message: string): void {
 }
 
 /**
- * Read one pyramid level's array metadata.
+ * Read one resolution level's array metadata.
  *
  * Best-effort: this is display metadata for the gallery, so any failure is
  * swallowed rather than turned into a note the user cannot act on.
@@ -110,7 +111,7 @@ function reportLimit(context: WalkContext, key: string, message: string): void {
 async function readLevelInfo(
   directory: FileSystemDirectoryHandle,
   levelPath: string,
-  format: 2 | 3,
+  layout: OmeZarrLayout,
 ): Promise<{ shape?: number[]; dtype?: string }> {
   try {
     let current = directory;
@@ -118,7 +119,7 @@ async function readLevelInfo(
       current = await current.getDirectoryHandle(segment);
     }
     const raw =
-      format === 3
+      layout === 'v5'
         ? await readJsonFile(current, 'zarr.json')
         : await readJsonFile(current, '.zarray');
     return raw ? readArrayInfo(raw) : {};
@@ -128,26 +129,26 @@ async function readLevelInfo(
 }
 
 /**
- * Decide whether a preview can be projected from the coarsest level.
+ * Decide whether a preview can be projected from the lowest-resolution level.
  *
- * Reads only that level's metadata — never its data — so an ineligible dataset
+ * Reads only that level's metadata — never its data — so an ineligible image
  * costs one small JSON read and is simply left without a preview.
  */
 async function checkPreviewable(
   directory: FileSystemDirectoryHandle,
   multiscale: MultiscaleInfo,
-  format: 2 | 3,
+  layout: OmeZarrLayout,
 ): Promise<boolean> {
-  const coarsest = multiscale.paths[multiscale.paths.length - 1];
-  if (!coarsest) return false;
+  const lowestLevel = multiscale.paths[multiscale.paths.length - 1];
+  if (!lowestLevel) return false;
 
-  const { shape, dtype } = await readLevelInfo(directory, coarsest, format);
+  const { shape, dtype } = await readLevelInfo(directory, lowestLevel, layout);
   if (!shape || shape.length < 2) return false;
 
   return isPreviewable(shape, axisRoles(multiscale.axes, shape.length), dtype);
 }
 
-async function recordDataset(
+async function recordImage(
   context: WalkContext,
   directory: FileSystemDirectoryHandle,
   relativePath: string,
@@ -155,19 +156,19 @@ async function recordDataset(
   multiscale: MultiscaleInfo,
 ): Promise<void> {
   const { mount } = context;
-  const finest = multiscale.paths[0];
-  const { shape, dtype } = finest
-    ? await readLevelInfo(directory, finest, node.format)
+  const highestLevel = multiscale.paths[0];
+  const { shape, dtype } = highestLevel
+    ? await readLevelInfo(directory, highestLevel, node.layout)
     : {};
 
   const hasConventionThumbnail = hasThumbnailsConvention(node);
-  // A dataset that ships its own thumbnails needs no preview from us, so skip
+  // An image that ships its own thumbnails needs no preview from us, so skip
   // the extra metadata read entirely.
   const previewable = hasConventionThumbnail
     ? false
-    : await checkPreviewable(directory, multiscale, node.format);
+    : await checkPreviewable(directory, multiscale, node.layout);
 
-  context.datasets.push({
+  context.images.push({
     id: `${mount.id}:${relativePath || '.'}`,
     name: displayName(relativePath, mount, multiscale),
     relativePath,
@@ -175,11 +176,11 @@ async function recordDataset(
     omeZarrVersion: multiscale.version,
     mountId: mount.id,
     mountName: mount.name,
-    zarrFormat: node.format,
+    layout: node.layout,
     axes: multiscale.axes,
     shape,
     dtype,
-    scaleCount: multiscale.paths.length || undefined,
+    levelCount: multiscale.paths.length || undefined,
     hasConventionThumbnail,
     previewable,
   });
@@ -220,11 +221,11 @@ async function walk(
 ): Promise<void> {
   context.options.signal?.throwIfAborted();
 
-  if (context.datasets.length >= context.limits.maxDatasets) {
+  if (context.images.length >= context.limits.maxImages) {
     reportLimit(
       context,
-      'datasets',
-      `Stopped after ${context.limits.maxDatasets} datasets; the folder contains more.`,
+      'images',
+      `Stopped after ${context.limits.maxImages} images; the folder contains more.`,
     );
     return;
   }
@@ -240,7 +241,7 @@ async function walk(
   context.directoriesScanned += 1;
   context.options.onProgress?.({
     directoriesScanned: context.directoriesScanned,
-    datasetsFound: context.datasets.length,
+    imagesFound: context.images.length,
     currentPath: displayPath(relativePath, context.mount),
   });
 
@@ -274,7 +275,7 @@ async function walk(
     const multiscale = readMultiscale(node);
     if (multiscale) {
       // Rule 1.
-      await recordDataset(context, directory, relativePath, node, multiscale);
+      await recordImage(context, directory, relativePath, node, multiscale);
       return;
     }
 
@@ -284,24 +285,24 @@ async function walk(
       note(context, {
         kind: 'skipped',
         path: displayPath(relativePath, context.mount),
-        message: 'HCS plate: listing the images inside it individually.',
+        message: 'HCS plate: listing its fields of view individually.',
       });
     } else if (isBioformats2RawLayout(node)) {
       note(context, {
         kind: 'skipped',
         path: displayPath(relativePath, context.mount),
-        message: 'bioformats2raw container: listing its image series individually.',
+        message: 'bioformats2raw layout: listing its image series individually.',
       });
     }
     // Any other group — a well, a plain container — falls through to the
-    // recursion below, which is how nested datasets are found.
+    // recursion below, which is how nested images are found.
   }
 
   if (depth >= context.limits.maxDepth) {
     reportLimit(
       context,
       'depth',
-      `Stopped at ${context.limits.maxDepth} folders deep; deeper datasets were not searched.`,
+      `Stopped at ${context.limits.maxDepth} folders deep; deeper images were not searched.`,
     );
     return;
   }
@@ -324,7 +325,7 @@ async function walk(
   }
 }
 
-/** Discover datasets in a single mount. */
+/** Discover images in a single mount. */
 export async function discoverInMount(
   mount: Mount,
   options: DiscoveryOptions = {},
@@ -333,7 +334,7 @@ export async function discoverInMount(
     mount,
     buildUrl: options.urlBuilder ?? localUrl,
     limits: { ...DEFAULT_LIMITS, ...options.limits },
-    datasets: [],
+    images: [],
     notes: [],
     directoriesScanned: 0,
     limitReported: new Set(),
@@ -352,21 +353,21 @@ export async function discoverInMount(
   }
 
   return {
-    datasets: context.datasets,
+    images: context.images,
     notes: context.notes,
     directoriesScanned: context.directoriesScanned,
   };
 }
 
 /**
- * Discover datasets across several mounts, accumulating progress so a drop of
+ * Discover images across several mounts, accumulating progress so a drop of
  * multiple folders reads as one operation.
  */
 export async function discoverInMounts(
   mounts: Mount[],
   options: DiscoveryOptions = {},
 ): Promise<DiscoveryResult> {
-  const datasets: DiscoveredDataset[] = [];
+  const images: DiscoveredImage[] = [];
   const notes: DiscoveryNote[] = [];
   let directoriesScanned = 0;
 
@@ -377,15 +378,15 @@ export async function discoverInMounts(
         ? (progress) =>
             options.onProgress?.({
               directoriesScanned: directoriesScanned + progress.directoriesScanned,
-              datasetsFound: datasets.length + progress.datasetsFound,
+              imagesFound: images.length + progress.imagesFound,
               currentPath: progress.currentPath,
             })
         : undefined,
     });
-    datasets.push(...result.datasets);
+    images.push(...result.images);
     notes.push(...result.notes);
     directoriesScanned += result.directoriesScanned;
   }
 
-  return { datasets, notes, directoriesScanned };
+  return { images, notes, directoriesScanned };
 }

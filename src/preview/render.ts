@@ -1,10 +1,10 @@
 /**
  * On-demand preview rendering.
  *
- * Produces a PNG by maximum-intensity-projecting the *coarsest* level of a
- * dataset's multiscale pyramid onto its two spatial axes. That level exists
+ * Produces a PNG by maximum-intensity-projecting the *lowest-resolution*
+ * level of a multiscale image onto its two spatial axes. That level exists
  * precisely so a whole-image view is cheap, so nothing has to be precomputed,
- * cached on disk, or generated ahead of time — the image is built when the
+ * cached on disk, or generated ahead of time — the preview is built when the
  * browser asks for it and thrown away after.
  *
  * Two axes are treated as more than something to collapse. Only the first
@@ -295,24 +295,24 @@ async function encodePng(image: ImageData): Promise<Blob> {
 }
 
 /**
- * Render a preview for the dataset at `relativePath` inside a mount.
+ * Render a preview for the image at `relativePath` inside a mount.
  *
- * Throws {@link PreviewUnavailableError} when the dataset has no usable
- * pyramid or its coarsest level is too large; callers turn that into a 404 so
- * the gallery falls back to its placeholder icon.
+ * Throws {@link PreviewUnavailableError} when the image declares no usable
+ * resolution levels, or its lowest-resolution level is too large; callers turn
+ * that into a 404 so the gallery falls back to its placeholder icon.
  */
 export async function renderPreview(
   mountRoot: FileSystemDirectoryHandle,
   relativePath: string,
 ): Promise<Blob> {
-  let datasetDirectory: FileSystemDirectoryHandle;
+  let imageDirectory: FileSystemDirectoryHandle;
   try {
-    datasetDirectory = await descend(mountRoot, relativePath);
+    imageDirectory = await descend(mountRoot, relativePath);
   } catch {
-    throw new PreviewUnavailableError('Dataset folder not found');
+    throw new PreviewUnavailableError('Image folder not found');
   }
 
-  const node = await readZarrNode(datasetDirectory);
+  const node = await readZarrNode(imageDirectory);
   if (node.kind !== 'group') throw new PreviewUnavailableError('Not a Zarr group');
 
   const multiscale = readMultiscale(node);
@@ -320,11 +320,11 @@ export async function renderPreview(
     throw new PreviewUnavailableError('No multiscale metadata');
   }
 
-  // The last entry is the coarsest level: smallest to read, and already a
+  // The last entry is the lowest-resolution level: smallest to read, and a
   // whole-image overview.
   const levelPath = multiscale.paths[multiscale.paths.length - 1];
 
-  const store = new DirectoryHandleStore(datasetDirectory);
+  const store = new DirectoryHandleStore(imageDirectory);
   const array = await zarr.open(zarr.root(store as never).resolve(`/${levelPath}`), {
     kind: 'array',
   });

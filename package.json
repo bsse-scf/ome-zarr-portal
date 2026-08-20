@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Browser-based portal for viewing local OME-Zarr datasets in Neuroglancer and Zarrcade, with no upload and no backend.",
+  "description": "Browser-based portal for viewing local OME-Zarr images in Neuroglancer and Zarrcade, with no upload and no backend.",
   "scripts": {
     "vendor": "node scripts/vendor-zarrcade.mjs",
     "dev": "npm run vendor && vite",

@@ -1,6 +1,6 @@
 # OME-Zarr Portal
 
-A browser-based portal for looking at **local** OME-Zarr data. Drop a dataset —
+A browser-based portal for looking at **local** OME-Zarr data. Drop an image —
 or a folder full of them — and open it in either [Neuroglancer][ng] (3-D
 visualization) or a [Zarrcade][zc] gallery (browsing, search, metadata).
 
@@ -111,7 +111,7 @@ and neither viewer needs it.
 The worker is **format-agnostic**: it knows nothing about Zarr. That is what
 lets two independent tools share one namespace with no adaptation.
 
-Reading a byte range slices the live `File`, so opening a 200 GB dataset costs
+Reading a byte range slices the live `File`, so opening a 200 GB image costs
 no disk space and no copy. Intermediate directory handles are cached per mount,
 because a chunked array issues thousands of requests sharing a long path
 prefix.
@@ -120,23 +120,23 @@ prefix.
 
 Gallery cards show an image without any precomputation step. The rule:
 
-1. **If the dataset ships thumbnails** (the [zarr thumbnails convention][thumb]),
+1. **If the image ships thumbnails** (the [Zarr `thumbnails` convention][thumb]),
    use them. The portal leaves the catalog's thumbnail cell empty and Zarrcade
    reads the convention itself, picking the best-sized entry — upstream already
    does this well.
-2. **Otherwise**, project the *coarsest* level of the multiscale pyramid. That
+2. **Otherwise**, project the *lowest-resolution* level of the multiscale. That
    level exists precisely so a whole-image view is cheap, so the preview costs
    one small read rather than a rendering pipeline.
 3. **Unless it is still too big.** Eligibility is decided at discovery time from
-   array metadata alone — no data is read — so an oversized dataset simply gets
+   array metadata alone — no data is read — so an oversized image simply gets
    no preview and falls back to the placeholder icon.
 
 The bounds live in `src/preview/policy.ts`: at most 200 MB read, with neither
 spatial extent above 4096. The budget is in bytes rather than elements because
 the same shape costs eight times as much in `float64` as in `uint8`, and it is
 measured on what is actually read rather than on the level as a whole — a
-1,000-timepoint series is judged by one timepoint. A well-formed pyramid
-bottoms out well inside that; a dataset whose smallest level is still enormous
+1,000-timepoint series is judged by one timepoint. A well-formed multiscale
+bottoms out well inside that; an image whose smallest level is still enormous
 is exactly the one to skip.
 
 Not every axis is treated alike:
@@ -164,7 +164,7 @@ otherwise wash out a min/max scaling.
 Previews are served from a third namespace:
 
 ```
-GET|HEAD  <base>_preview/<mount-id>/<dataset-path>   a generated PNG
+GET|HEAD  <base>_preview/<mount-id>/<image-path>   a generated PNG
 ```
 
 `_local/` stays a faithful mirror of what is on disk; a preview is derived, so
@@ -198,31 +198,31 @@ derived documents, never user data.
 `src/discovery/` walks mounted directories and returns a normalized list:
 
 ```ts
-interface DiscoveredDataset {
+interface DiscoveredImage {
   id: string;
   name: string;
   relativePath: string;
   virtualUrl: string;
   omeZarrVersion?: string;
-  // plus context and best-effort metadata: mountId, mountName, zarrFormat,
-  // axes, shape, dtype, scaleCount
+  // plus context and best-effort metadata: mountId, mountName, layout,
+  // axes, shape, dtype, levelCount
 }
 ```
 
 Detection is driven by metadata, not by filename: a `.ome.zarr` suffix is a
-convention, not a guarantee, and plenty of valid datasets do not use it. Both
+convention, not a guarantee, and plenty of valid images do not use it. Both
 layouts in current use are handled:
 
-* **Zarr v2 / OME-NGFF ≤ 0.4** — `.zgroup`, `.zarray`, `.zattrs`, with
+* **OME-Zarr v4 and earlier** — `.zgroup`, `.zarray`, `.zattrs`, with
   `multiscales` at the top level of `.zattrs`.
-* **Zarr v3 / OME-NGFF ≥ 0.5** — a single `zarr.json` whose `node_type`
-  distinguishes group from array, with `multiscales` under `attributes.ome`.
+* **OME-Zarr v5** — a single `zarr.json` whose `node_type` distinguishes group
+  from array, with `multiscales` under `attributes.ome`.
 
 Two rules keep the walk both correct and cheap:
 
-1. **A group carrying `multiscales` *is* the dataset**, and the walk stops
+1. **A group carrying `multiscales` *is* the image**, and the walk stops
    there. This is what prevents the resolution levels beneath it (`0/`, `1/`, …)
-   from being reported as datasets of their own.
+   from being reported as images of their own.
 2. **A Zarr array is never descended into.** Its children are chunk files and
    chunk directories — potentially millions of entries.
 
@@ -232,13 +232,13 @@ to be Zarr arrays.
 
 Other cases:
 
-* **A dropped dataset root** is returned as a single dataset (`relativePath: ''`).
+* **A dropped image root** is returned as a single image (`relativePath: ''`).
 * **HCS plates** are not openable as one image, so the walk continues into them
   and lists each field of view, with a note saying so.
-* **`bioformats2raw.layout` containers** are walked into, listing each series.
+* **`bioformats2raw.layout` groups** are walked into, listing each image series.
 * **A bare Zarr array** is reported as unsupported when dropped directly, and
   silently ignored when encountered deeper down.
-* Depth, dataset count, directory count and entries-per-directory are all
+* Depth, image count, directory count and entries-per-directory are all
   **bounded**, and hitting a bound produces a visible note rather than a hang.
 
 ## Upstream modifications
@@ -267,22 +267,22 @@ decoders are emitted as ordinary assets.
 
 Neuroglancer is driven through its own `#!{…}` state fragment, the
 upstream-supported way to open a viewer on a given set of sources. The portal
-builds one `zarr://` layer per discovered dataset with `type: "auto"`, which
-lets Neuroglancer decide from the OME-NGFF metadata whether a dataset is an
+builds one `zarr://` layer per discovered image with `type: "auto"`, which
+lets Neuroglancer decide from the OME-Zarr metadata whether an image is an
 image or a segmentation.
 
-The **layout** is chosen from the data. Datasets with real depth open in the
-four-panel orthogonal layout (`4panel-alt`); datasets with no z axis open as a
+The **layout** is chosen from the data. Images with real depth open in the
+four-panel orthogonal layout (`4panel-alt`); images with no z axis open as a
 single `xy` panel, since orthogonal panels of a 2-D image are two degenerate
 single-voxel strips. A z axis of length 1 counts as planar — common in
-converted slide scans — and OME-NGFF older than 0.4, which declares no axes at
+converted slide scans — and OME-Zarr older than 0.4, which declares no axes at
 all, is assumed volumetric because it was always 5-D.
 
 Neuroglancer's layout belongs to the viewer rather than to a layer, so a drop
 containing both kinds keeps the orthogonal layout, which still displays planar
 layers correctly. The same choice is baked into the Zarrcade viewer template:
 Zarrcade exposes only a row's path and name to a template, so the layout is
-picked for the gallery as a whole rather than per dataset.
+picked for the gallery as a whole rather than per image.
 
 Nothing needed patching because the virtual URLs are same-origin, ordinary
 HTTP. Neuroglancer's `zarr://` source sits on its HTTP key-value store, which
@@ -298,12 +298,12 @@ a relative base, so it runs from a subpath unchanged.
 
 Its documented extension point — `?config=<url>` → a JSON config → a CSV
 catalog — is exactly the hook needed. Instead of the usual pre-generated static
-catalog, the portal generates both documents from the discovered datasets at
+catalog, the portal generates both documents from the discovered images at
 drop time and serves them from `_session/` (`src/integrations/zarrcade.ts`).
 
 The one substantive difference from a normal Zarrcade deployment is the
 **viewer list**. Zarrcade ships with external viewers — the public Neuroglancer
-demo, Avivator, the OME-NGFF validator — and none of them can reach a `_local/`
+demo, Avivator, the OME-Zarr validator — and none of them can reach a `_local/`
 URL that exists only inside this browser. The generated config replaces them
 with the Neuroglancer bundled alongside the portal. This is configuration, not
 a patch.
@@ -314,13 +314,13 @@ misconfigured gallery.
 
 Consequences worth knowing:
 
-* Zarrcade's own thumbnail support reads the [zarr thumbnails convention][thumb]
-  from `zarr.json` → `attributes.thumbnails`, i.e. Zarr v3 only. The portal
+* Zarrcade's own thumbnail support reads the [Zarr `thumbnails` convention][thumb]
+  from `zarr.json` → `attributes.thumbnails`, i.e. OME-Zarr v5 only. The portal
   fills the gap for everything else by generating previews; see
   [Previews](#previews).
 * Zarrcade derives the Neuroglancer layer name from the URL basename with only
   `.zarr` stripped, so a `sample.ome.zarr` opened from the gallery is labelled
-  `sample.ome`. Opening the same dataset from the landing page gives `sample`.
+  `sample.ome`. Opening the same image from the landing page gives `sample`.
 
 ## Deploying to GitHub Pages
 
@@ -375,7 +375,7 @@ willing to expose to this origin, and use "Unmount all" when finished.
 returns 404. Zarr does not need listings, but a tool that relies on them would
 not work here.
 
-**External viewers cannot be used.** Avivator, the OME-NGFF validator and
+**External viewers cannot be used.** Avivator, the OME-Zarr validator and
 similar hosted tools cannot fetch a URL that only resolves inside this browser
 profile. Only same-origin viewers work, which is why both are bundled.
 
@@ -383,7 +383,7 @@ profile. Only same-origin viewers work, which is why both are bundled.
 service worker's behalf, so a gallery left open in its own tab after the portal
 was closed falls back to placeholder icons. Reopening the portal restores them.
 
-**Large plates are capped.** Discovery stops after 1000 datasets (and other
+**Large plates are capped.** Discovery stops after 1000 images (and other
 bounds) and reports that it did.
 
 **Cache invalidation is coarse.** Directory handles are cached until a mount is
@@ -407,7 +407,7 @@ src/
   discovery/                OME-Zarr discovery
   preview/                  on-demand gallery previews
     policy.ts               when a preview is worth generating
-    render.ts               coarsest level -> projection -> PNG
+    render.ts               lowest-resolution level -> projection -> PNG
     worker.ts, host.ts      dedicated worker and its page-side host
   integrations/             Neuroglancer state, Zarrcade config + catalog
 tests/                      unit tests (`npm test`)

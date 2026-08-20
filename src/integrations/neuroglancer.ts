@@ -10,14 +10,14 @@
  * data source sits on top of its HTTP key-value store, which needs nothing
  * more than GET, HEAD, byte ranges and honest 404s.
  */
-import type { DiscoveredDataset } from '../discovery/types';
+import type { DiscoveredImage } from '../discovery/types';
 import { siteUrl } from '../vfs/client';
 
-/** Neuroglancer layer names must be unique; datasets can share a folder name. */
-function uniqueNames(datasets: DiscoveredDataset[]): string[] {
+/** Neuroglancer layer names must be unique; images can share a folder name. */
+function uniqueNames(images: DiscoveredImage[]): string[] {
   const used = new Map<string, number>();
-  return datasets.map((dataset) => {
-    const base = dataset.name || 'image';
+  return images.map((image) => {
+    const base = image.name || 'image';
     const seen = used.get(base) ?? 0;
     used.set(base, seen + 1);
     return seen === 0 ? base : `${base} (${seen + 1})`;
@@ -30,15 +30,15 @@ const VOLUMETRIC_LAYOUT = '4panel-alt';
 const PLANAR_LAYOUT = 'xy';
 
 /**
- * Whether a dataset has real depth, and so wants orthogonal panels.
+ * Whether an image has real depth, and so wants orthogonal panels.
  *
  * A 2-D image shown in the 4-panel layout wastes two panels on degenerate
  * single-voxel strips, so this decides which layout the viewer opens in.
  */
-export function isVolumetric(dataset: DiscoveredDataset): boolean {
-  const { axes, shape } = dataset;
+export function isVolumetric(image: DiscoveredImage): boolean {
+  const { axes, shape } = image;
 
-  // OME-NGFF before 0.4 carries no axes metadata and was always 5-D (tczyx).
+  // OME-Zarr before 0.4 carries no axes metadata and was always 5-D (tczyx).
   // Assume depth rather than risk flattening a volume to a single plane.
   if (!axes) return true;
 
@@ -59,9 +59,9 @@ export function isVolumetric(dataset: DiscoveredDataset): boolean {
  * mixed set has to compromise: if anything has depth, keep the orthogonal
  * panels, since that layout still shows planar layers correctly.
  */
-export function chooseLayout(datasets: DiscoveredDataset[]): string {
-  if (datasets.length === 0) return VOLUMETRIC_LAYOUT;
-  return datasets.some(isVolumetric) ? VOLUMETRIC_LAYOUT : PLANAR_LAYOUT;
+export function chooseLayout(images: DiscoveredImage[]): string {
+  if (images.length === 0) return VOLUMETRIC_LAYOUT;
+  return images.some(isVolumetric) ? VOLUMETRIC_LAYOUT : PLANAR_LAYOUT;
 }
 
 export interface NeuroglancerState {
@@ -71,18 +71,18 @@ export interface NeuroglancerState {
 }
 
 /**
- * Build viewer state with one layer per dataset.
+ * Build viewer state with one layer per image.
  *
- * `type: "auto"` lets Neuroglancer decide from the OME-NGFF metadata whether a
- * dataset is an image or a segmentation, so label datasets come up correctly
+ * `type: "auto"` lets Neuroglancer decide from the OME-Zarr metadata whether an
+ * image is an image or a segmentation, so label images come up correctly
  * without the portal having to interpret the metadata itself.
  */
-export function buildNeuroglancerState(datasets: DiscoveredDataset[]): NeuroglancerState {
-  const names = uniqueNames(datasets);
-  const layers = datasets.map((dataset, index) => ({
+export function buildNeuroglancerState(images: DiscoveredImage[]): NeuroglancerState {
+  const names = uniqueNames(images);
+  const layers = images.map((image, index) => ({
     type: 'auto',
     name: names[index],
-    source: `zarr://${dataset.virtualUrl}`,
+    source: `zarr://${image.virtualUrl}`,
   }));
 
   return {
@@ -92,18 +92,18 @@ export function buildNeuroglancerState(datasets: DiscoveredDataset[]): Neuroglan
     // has seen the image. Selecting it anyway means the panel shows that layer
     // when the user does open it.
     ...(layers.length > 0 ? { selectedLayer: { visible: false, layer: layers[0].name } } : {}),
-    layout: chooseLayout(datasets),
+    layout: chooseLayout(images),
   };
 }
 
 /**
- * URL of the bundled viewer, opened on the given datasets.
+ * URL of the bundled viewer, opened on the given images.
  *
  * `index.html` is named explicitly rather than relying on the host to serve a
  * directory index — true of GitHub Pages, but not of Vite's dev server.
  */
-export function neuroglancerUrl(datasets: DiscoveredDataset[]): string {
-  const state = buildNeuroglancerState(datasets);
+export function neuroglancerUrl(images: DiscoveredImage[]): string {
+  const state = buildNeuroglancerState(images);
   return `${siteUrl('neuroglancer/index.html')}#!${encodeURIComponent(JSON.stringify(state))}`;
 }
 
@@ -115,12 +115,12 @@ export function neuroglancerUrl(datasets: DiscoveredDataset[]): string {
  * Zarrcade's stock templates use, and one Neuroglancer accepts.
  *
  * A template is a single string shared by every row, and Zarrcade exposes only
- * the path and name to it, so the layout cannot vary per dataset here. It is
+ * the path and name to it, so the layout cannot vary per image here. It is
  * chosen for the gallery as a whole, exactly as it is for a multi-layer view.
  */
-export function neuroglancerUrlTemplate(datasets: DiscoveredDataset[]): string {
+export function neuroglancerUrlTemplate(images: DiscoveredImage[]): string {
   const state =
     '{"layers":[{"name":"{NAME}","source":"zarr://{URL}","type":"auto"}],' +
-    `"selectedLayer":{"visible":true,"layer":"{NAME}"},"layout":"${chooseLayout(datasets)}"}`;
+    `"selectedLayer":{"visible":true,"layer":"{NAME}"},"layout":"${chooseLayout(images)}"}`;
   return `${siteUrl('neuroglancer/index.html')}#!${state}`;
 }

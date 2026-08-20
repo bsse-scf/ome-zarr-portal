@@ -374,14 +374,14 @@ export async function serveSession(
 export interface PreviewServeOptions {
   prefix: string;
   lookupMount: (mountId: string) => Promise<{ id: string; handle: FileSystemDirectoryHandle } | null>;
-  /** Produce a PNG for a dataset, or throw if one cannot be made. */
+  /** Produce a PNG for an image, or throw if one cannot be made. */
   render: (mountId: string, relativePath: string) => Promise<Blob>;
 }
 
 /**
  * Serve a request under the `_preview/` namespace.
  *
- * Every failure — an unknown mount, a dataset with no pyramid, a level too
+ * Every failure — an unknown mount, an image with no resolution levels, one too
  * large to project, a codec we cannot decode, no page available to render —
  * is answered with 404. That is
  * deliberate: Zarrcade's image `onerror` handler falls back to its placeholder

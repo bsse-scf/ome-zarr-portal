@@ -4,7 +4,7 @@
 
 export interface DropExtraction {
   directories: FileSystemDirectoryHandle[];
-  /** Files dropped directly. A lone file is never an OME-Zarr dataset. */
+  /** Files dropped directly. A lone file is never an OME-Zarr image. */
   files: FileSystemFileHandle[];
   /** Human-readable notes about items that were ignored. */
   problems: string[];

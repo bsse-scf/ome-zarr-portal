@@ -3,7 +3,7 @@
  * two viewers.
  */
 import { discoverInMounts } from '../discovery/discover';
-import type { DiscoveredDataset, DiscoveryNote } from '../discovery/types';
+import type { DiscoveredImage, DiscoveryNote } from '../discovery/types';
 import { neuroglancerUrl } from '../integrations/neuroglancer';
 import { createZarrcadeSession } from '../integrations/zarrcade';
 import {
@@ -65,6 +65,7 @@ export function startApp(): void {
   const viewerTitle = element<HTMLElement>('viewer-title');
   const viewerOpen = element<HTMLAnchorElement>('viewer-open');
   const viewerBack = element<HTMLButtonElement>('viewer-back');
+  const about = element<HTMLDialogElement>('about');
 
   const dropzones = Array.from(
     document.querySelectorAll<HTMLElement>('.dropzone'),
@@ -163,6 +164,17 @@ export function startApp(): void {
     }
   }
 
+  /* ---------------------------------------------------------------- about */
+
+  element<HTMLButtonElement>('about-open').addEventListener('click', () => about.showModal());
+  element<HTMLButtonElement>('about-close').addEventListener('click', () => about.close());
+
+  // A modal dialog covers the whole layer, so a click reaches the dialog
+  // element itself only when it landed on the backdrop around the panel.
+  about.addEventListener('click', (event) => {
+    if (event.target === about) about.close();
+  });
+
   /* -------------------------------------------------------------- viewers */
 
   function openViewer(url: string, title: string): void {
@@ -186,13 +198,13 @@ export function startApp(): void {
     if (event.key === 'Escape' && !viewer.hidden) closeViewer();
   });
 
-  async function show(target: Target, datasets: DiscoveredDataset[]): Promise<void> {
+  async function show(target: Target, images: DiscoveredImage[]): Promise<void> {
     if (target === 'neuroglancer') {
-      openViewer(neuroglancerUrl(datasets), `Neuroglancer — ${plural(datasets.length, 'layer')}`);
+      openViewer(neuroglancerUrl(images), `Neuroglancer — ${plural(images.length, 'layer')}`);
       return;
     }
-    const session = await createZarrcadeSession(datasets);
-    openViewer(session.url, `Zarrcade — ${plural(datasets.length, 'dataset')}`);
+    const session = await createZarrcadeSession(images);
+    openViewer(session.url, `Zarrcade — ${plural(images.length, 'image')}`);
   }
 
   /* ------------------------------------------------------------ main flow */
@@ -208,7 +220,7 @@ export function startApp(): void {
     if (directories.length === 0) {
       const detail =
         files.length > 0
-          ? 'An OME-Zarr dataset is a folder, not a single file. Drop the folder that contains `zarr.json` or `.zgroup`.'
+          ? 'An OME-Zarr image is a folder, not a single file. Drop the folder that contains `zarr.json` or `.zgroup`.'
           : 'Nothing readable was dropped.';
       setStatus('No folder to open', { detail, error: true });
       renderNotes(problems.map((message) => ({ kind: 'error', path: '—', message })));
@@ -225,7 +237,7 @@ export function startApp(): void {
       }
       await renderMounts();
 
-      setStatus(`Searching ${plural(mounts.length, 'folder')} for OME-Zarr datasets…`);
+      setStatus(`Searching ${plural(mounts.length, 'folder')} for OME-Zarr images…`);
       const progress = document.createElement('p');
       progress.className = 'status-progress';
       const progressPath = document.createElement('span');
@@ -239,7 +251,7 @@ export function startApp(): void {
           const now = performance.now();
           if (now - lastPaint < 100) return;
           lastPaint = now;
-          progress.textContent = `${plural(update.datasetsFound, 'dataset')} found · ${plural(
+          progress.textContent = `${plural(update.imagesFound, 'image')} found · ${plural(
             update.directoriesScanned,
             'folder',
           )} scanned`;
@@ -247,12 +259,12 @@ export function startApp(): void {
         },
       });
 
-      const { datasets, notes } = result;
+      const { images, notes } = result;
 
-      if (datasets.length === 0) {
-        setStatus('No OME-Zarr datasets found', {
+      if (images.length === 0) {
+        setStatus('No OME-Zarr images found', {
           detail:
-            'The portal looks for Zarr groups carrying OME-NGFF `multiscales` metadata, in both the Zarr v2 and v3 layouts.',
+            'The portal looks for Zarr groups carrying OME-Zarr `multiscales` metadata, in both the OME-Zarr v4 and v5 layouts.',
           error: true,
         });
         renderNotes(notes);
@@ -260,7 +272,7 @@ export function startApp(): void {
       }
 
       setStatus(
-        `Found ${plural(datasets.length, 'dataset')} in ${plural(
+        `Found ${plural(images.length, 'image')} in ${plural(
           result.directoriesScanned,
           'folder',
         )}.`,
@@ -270,17 +282,17 @@ export function startApp(): void {
       renderActions([
         {
           label: `Open in ${TARGET_LABELS[target]}`,
-          onClick: () => void show(target, datasets),
+          onClick: () => void show(target, images),
         },
         {
           label:
             target === 'neuroglancer' ? 'Open the gallery instead' : 'Open in Neuroglancer instead',
           onClick: () =>
-            void show(target === 'neuroglancer' ? 'gallery' : 'neuroglancer', datasets),
+            void show(target === 'neuroglancer' ? 'gallery' : 'neuroglancer', images),
         },
       ]);
 
-      await show(target, datasets);
+      await show(target, images);
     } catch (error) {
       if (error instanceof ServiceWorkerUnavailableError) {
         setStatus('Cannot serve local files', { detail: error.message, error: true });

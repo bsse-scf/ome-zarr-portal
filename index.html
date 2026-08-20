@@ -6,19 +6,23 @@
     <title>OME-Zarr Portal</title>
     <meta
       name="description"
-      content="View local OME-Zarr datasets in Neuroglancer and Zarrcade. Nothing is uploaded."
+      content="View local OME-Zarr images in Neuroglancer and Zarrcade. Nothing is uploaded."
     />
   </head>
   <body>
     <div class="page">
       <header class="masthead">
-        <h1>OME-Zarr Portal</h1>
+        <div class="masthead-row">
+          <h1>OME-Zarr Portal</h1>
+          <button type="button" id="about-open" class="about-button" aria-haspopup="dialog">
+            About
+          </button>
+        </div>
         <p class="tagline">
-          Drop a dataset or a folder of datasets to explore it in the browser.
+          Drop an OME-Zarr image, or a folder of them, to explore in the browser.
         </p>
         <p class="assurance">
-          <strong>Your data stays on your machine</strong> — nothing is uploaded, and no
-          server ever sees a byte of it.
+          Data is not uploaded to remote servers and stays on the local machine.
         </p>
       </header>
 
@@ -34,7 +38,7 @@
             <h2>Visualize</h2>
             <p class="dropzone-hint">Open in Neuroglancer</p>
             <p class="dropzone-body">
-              Drop one OME-Zarr dataset to view it, or a folder of datasets to load
+              Drop one OME-Zarr image to view it, or a folder of images to load
               each one as its own layer.
             </p>
             <button type="button" class="browse" data-target="neuroglancer">
@@ -54,7 +58,7 @@
             <h2>Browse</h2>
             <p class="dropzone-hint">Open a Zarrcade gallery</p>
             <p class="dropzone-body">
-              Drop a folder to get a searchable gallery of every dataset inside it,
+              Drop a folder to get a searchable gallery of every image inside it,
               with metadata and links into the viewer.
             </p>
             <button type="button" class="browse" data-target="gallery">
@@ -112,6 +116,101 @@
         </div>
       </footer>
     </div>
+
+
+    <dialog id="about" class="about" aria-labelledby="about-title">
+      <div class="about-head">
+        <h2 id="about-title">About this portal</h2>
+        <button type="button" id="about-close" class="about-close" aria-label="Close">&times;</button>
+      </div>
+
+      <section class="about-section">
+        <h3>What is OME-Zarr?</h3>
+        <p>
+          A community format for bioimages. One image is a <em>folder</em>, not a single
+          file: the pixels are cut into chunks, and a small metadata file beside them
+          records the axes, the physical pixel size and the channels.
+        </p>
+        <pre class="about-tree">sample.ome.zarr/
+├─ zarr.json   the metadata
+├─ 0/          full resolution
+├─ 1/          half size
+└─ 2/          quarter size</pre>
+        <p>
+          The same folder holds the image at several resolutions, so a viewer reads only
+          the level and the region it is showing. That is why a 200 GB image opens as
+          quickly as a small one.
+        </p>
+      </section>
+
+      <section class="about-section">
+        <h3>What can I drop?</h3>
+        <ul>
+          <li>
+            <strong>One image</strong> — the folder holding <code>zarr.json</code>
+            (OME-Zarr v5) or <code>.zgroup</code> (v4 and earlier).
+          </li>
+          <li>
+            <strong>Any folder above them</strong> — the portal looks inside and lists
+            every OME-Zarr image it finds, however deeply nested.
+          </li>
+          <li>
+            <strong>Plates and conversions</strong> — an HCS plate is opened up into its
+            fields of view, a <code>bioformats2raw.layout</code> folder into its image
+            series.
+          </li>
+        </ul>
+        <p>
+          Single files such as <code>.tif</code> or <code>.czi</code> cannot be opened,
+          and neither can a bare Zarr array with no <code>multiscales</code> metadata —
+          convert those first.
+        </p>
+      </section>
+
+      <section class="about-section">
+        <h3>Which browsers work?</h3>
+        <p>
+          Chrome, Edge, Opera, Brave and other Chromium-based browsers.
+        </p>
+        <p>
+          Nothing is uploaded, so the page has to read the dropped folder where it
+          already sits — which needs the File System Access API — and then serve it to
+          Neuroglancer and Zarrcade through a Service Worker. Firefox and Safari give a
+          page only a private storage area of its own, never a folder on your disk, so
+          there is nothing for the portal to open there.
+        </p>
+      </section>
+
+      <section class="about-section">
+        <h3>Where to go next</h3>
+        <ul class="about-links">
+          <li>
+            <a href="https://ngff.openmicroscopy.org/" target="_blank" rel="noopener">
+              The OME-Zarr specification
+            </a>
+            <span>What the format is, version by version.</span>
+          </li>
+          <li>
+            <a href="https://ome.github.io/ome-ngff-validator/" target="_blank" rel="noopener">
+              OME-Zarr validator
+            </a>
+            <span>Check whether a folder is valid, and see its metadata.</span>
+          </li>
+          <li>
+            <a href="https://github.com/glencoesoftware/bioformats2raw" target="_blank" rel="noopener">
+              bioformats2raw
+            </a>
+            <span>Convert microscopy formats into OME-Zarr.</span>
+          </li>
+          <li>
+            <a href="https://forum.image.sc/tag/ome-zarr" target="_blank" rel="noopener">
+              image.sc forum
+            </a>
+            <span>Where the community answers questions.</span>
+          </li>
+        </ul>
+      </section>
+    </dialog>
 
     <div class="viewer" id="viewer" hidden>
       <div class="viewer-bar">

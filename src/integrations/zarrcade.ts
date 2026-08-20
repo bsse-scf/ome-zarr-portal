@@ -9,11 +9,11 @@
  *
  * The one substantive difference from a normal Zarrcade deployment is the
  * viewer list. Zarrcade ships with external viewers (the public Neuroglancer
- * demo, Avivator, the OME-NGFF validator), none of which can reach a
+ * demo, Avivator, the OME-Zarr validator), none of which can reach a
  * `_local/` URL that only exists inside this browser. They are replaced with
  * the Neuroglancer bundled alongside the portal.
  */
-import type { DiscoveredDataset } from '../discovery/types';
+import type { DiscoveredImage } from '../discovery/types';
 import { previewUrl, putSessionFile, pruneSessions, siteUrl } from '../vfs/client';
 import { neuroglancerUrlTemplate } from './neuroglancer';
 
@@ -27,12 +27,11 @@ const COLUMNS = [
   THUMBNAIL_COLUMN,
   'Folder',
   'Location',
-  'NGFF Version',
-  'Zarr Format',
+  'OME-Zarr Version',
   'Axes',
   'Shape',
   'Data Type',
-  'Levels',
+  'Resolution Levels',
 ] as const;
 
 function csvEscape(value: string): string {
@@ -43,38 +42,49 @@ function csvEscape(value: string): string {
  * Choose what fills a row's thumbnail cell.
  *
  * Empty is meaningful: with no CSV thumbnail, Zarrcade falls back to its own
- * zarr thumbnails convention lookup, and then to a placeholder icon. So a
- * dataset that ships real thumbnails is left empty on purpose — upstream reads
+ * Zarr `thumbnails` convention lookup, and then to a placeholder icon. So an
+ * image that ships real thumbnails is left empty on purpose — upstream reads
  * them directly and picks the best-sized entry, which beats anything we could
  * substitute. Only when there is no thumbnail do we point at a generated
  * projection, and only when one can actually be produced.
  */
-function thumbnailCell(dataset: DiscoveredDataset): string {
-  if (dataset.hasConventionThumbnail) return '';
-  if (!dataset.previewable) return '';
-  return previewUrl(dataset.mountId, dataset.relativePath);
+function thumbnailCell(image: DiscoveredImage): string {
+  if (image.hasConventionThumbnail) return '';
+  if (!image.previewable) return '';
+  return previewUrl(image.mountId, image.relativePath);
 }
 
-function row(dataset: DiscoveredDataset): string[] {
+/**
+ * The OME-Zarr version, as the community writes it: `0.5` is v5.
+ *
+ * Metadata that declares no version at all still says which layout it is
+ * written in, and that narrows it down: `zarr.json` means v5, and the older
+ * files mean v4 or earlier.
+ */
+function versionCell(image: DiscoveredImage): string {
+  if (image.omeZarrVersion) return `v${image.omeZarrVersion.replace(/^0\./, '')}`;
+  return image.layout === 'v5' ? 'v5' : 'v4 or earlier';
+}
+
+function row(image: DiscoveredImage): string[] {
   return [
-    dataset.name,
-    dataset.virtualUrl,
-    thumbnailCell(dataset),
-    dataset.mountName,
-    dataset.relativePath || '.',
-    dataset.omeZarrVersion ?? 'unknown',
-    `v${dataset.zarrFormat}`,
-    dataset.axes?.join(', ') ?? '',
-    dataset.shape?.join(' × ') ?? '',
-    dataset.dtype ?? '',
-    dataset.scaleCount !== undefined ? String(dataset.scaleCount) : '',
+    image.name,
+    image.virtualUrl,
+    thumbnailCell(image),
+    image.mountName,
+    image.relativePath || '.',
+    versionCell(image),
+    image.axes?.join(', ') ?? '',
+    image.shape?.join(' × ') ?? '',
+    image.dtype ?? '',
+    image.levelCount !== undefined ? String(image.levelCount) : '',
   ];
 }
 
-export function buildCatalogCsv(datasets: DiscoveredDataset[]): string {
+export function buildCatalogCsv(images: DiscoveredImage[]): string {
   const lines = [COLUMNS.join(',')];
-  for (const dataset of datasets) {
-    lines.push(row(dataset).map(csvEscape).join(','));
+  for (const image of images) {
+    lines.push(row(image).map(csvEscape).join(','));
   }
   return `${lines.join('\n')}\n`;
 }
@@ -82,7 +92,7 @@ export function buildCatalogCsv(datasets: DiscoveredDataset[]): string {
 export function buildZarrcadeConfig(
   catalogUrl: string,
   title: string,
-  datasets: DiscoveredDataset[],
+  images: DiscoveredImage[],
 ): unknown {
   return {
     title,
@@ -101,14 +111,14 @@ export function buildZarrcadeConfig(
     },
     filters: [
       { column: 'Folder', label: 'Folder' },
-      { column: 'NGFF Version', label: 'NGFF version' },
+      { column: 'OME-Zarr Version', label: 'OME-Zarr version' },
       { column: 'Data Type', label: 'Data type' },
     ],
     viewers: [
       {
         name: 'Neuroglancer',
         icon: 'neuroglancer.png',
-        urlTemplate: neuroglancerUrlTemplate(datasets),
+        urlTemplate: neuroglancerUrlTemplate(images),
         enabled: true,
       },
     ],
@@ -117,20 +127,20 @@ export function buildZarrcadeConfig(
 
 export interface ZarrcadeSession {
   sessionId: string;
-  /** URL of the Zarrcade SPA, configured for these datasets. */
+  /** URL of the Zarrcade SPA, configured for these images. */
   url: string;
   configUrl: string;
   catalogUrl: string;
 }
 
 /**
- * Publish a gallery for the given datasets and return the URL to open.
+ * Publish a gallery for the given images and return the URL to open.
  *
  * Older sessions are pruned: their catalogs point at mounts that may no longer
  * exist, so keeping them only leaves dead links in the browser history.
  */
 export async function createZarrcadeSession(
-  datasets: DiscoveredDataset[],
+  images: DiscoveredImage[],
   title = 'Local OME-Zarr gallery',
 ): Promise<ZarrcadeSession> {
   const sessionId = crypto.randomUUID();
@@ -138,13 +148,13 @@ export async function createZarrcadeSession(
   const catalogUrl = await putSessionFile(
     sessionId,
     'catalog.csv',
-    buildCatalogCsv(datasets),
+    buildCatalogCsv(images),
     'text/csv; charset=utf-8',
   );
   const configUrl = await putSessionFile(
     sessionId,
     'config.json',
-    JSON.stringify(buildZarrcadeConfig(catalogUrl, title, datasets), null, 2),
+    JSON.stringify(buildZarrcadeConfig(catalogUrl, title, images), null, 2),
     'application/json',
   );
 

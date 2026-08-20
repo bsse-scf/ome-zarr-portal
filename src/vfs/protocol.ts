@@ -18,8 +18,8 @@
 export const LOCAL_SEGMENT = '_local';
 export const SESSION_SEGMENT = '_session';
 /**
- * Derived preview images, rendered on demand from a dataset's coarsest
- * pyramid level. Kept out of `_local/`, which is a faithful mirror of what is
+ * Derived preview images, rendered on demand from an image's lowest-resolution
+ * level. Kept out of `_local/`, which is a faithful mirror of what is
  * actually on disk.
  */
 export const PREVIEW_SEGMENT = '_preview';

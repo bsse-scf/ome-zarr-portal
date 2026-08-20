@@ -118,7 +118,7 @@ export function localUrl(mountId: string, relativePath = ''): string {
 }
 
 /**
- * Absolute URL of a dataset's generated preview image.
+ * Absolute URL of an image's generated preview image.
  *
  * Deliberately outside `_local/`, which mirrors what is actually on disk;
  * a preview is derived, not a file the user has.

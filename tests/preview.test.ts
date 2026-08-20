@@ -16,7 +16,7 @@ describe('preview axis roles', () => {
     assert.deepEqual(axisRoles(['y', 'x', 'c'], 3), { y: 0, x: 1, t: undefined, c: 2 });
   });
 
-  it('is case-insensitive, as datasets in the wild are inconsistent', () => {
+  it('is case-insensitive, as images in the wild are inconsistent', () => {
     assert.deepEqual(axisRoles(['C', 'Y', 'X'], 3), { y: 1, x: 2, t: undefined, c: 0 });
   });
 

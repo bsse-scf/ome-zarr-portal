@@ -1,14 +1,14 @@
 /**
  * When a preview is worth generating, and how big it may be.
  *
- * Previews are rendered on demand from the *coarsest* level of a dataset's
- * multiscale pyramid — the level that already exists precisely so that a
+ * Previews are rendered on demand from the *lowest-resolution* level of a
+ * multiscale image — the level that already exists precisely so that a
  * whole-image view is cheap. Nothing is precomputed and nothing is written to
  * disk.
  *
  * That level has to be read and decompressed, so eligibility is decided from
  * array metadata alone, before any data is touched. Both the catalog builder
- * and the renderer consult this, so a dataset can never be advertised as
+ * and the renderer consult this, so an image can never be advertised as
  * previewable and then refused.
  */
 
@@ -44,8 +44,8 @@ export interface AxisRoles {
 /**
  * Work out the role of each dimension.
  *
- * OME-NGFF declares axis names from 0.3 onwards, and they are used verbatim
- * when present. Older datasets declare nothing, but the pre-0.4 spec fixed the
+ * OME-Zarr declares axis names from 0.3 onwards, and they are used verbatim
+ * when present. Older images declare nothing, but the pre-0.4 spec fixed the
  * layout at 5-D `tczyx`, so a rank-5 array with no axes is read that way; any
  * other rank falls back to "the last two dimensions are y and x", which is
  * true of every layout in practice.
@@ -124,7 +124,7 @@ export function previewInputBytes(
   return elements * bytesPerElement(dtype);
 }
 
-/** Decide whether the coarsest level is small enough to project. */
+/** Decide whether the lowest-resolution level is small enough to project. */
 export function isPreviewable(
   shape: number[],
   roles: AxisRoles,

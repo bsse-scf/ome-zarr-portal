@@ -113,10 +113,10 @@ const browser = await puppeteer.launch({
 });
 
 const mountId = `test${Date.now().toString(36)}`;
-const datasetName = 'browser_test.ome.zarr';
-const datasetUrl = `${ORIGIN}${BASE}_local/${mountId}/${datasetName}/`;
+const imageName = 'browser_test.ome.zarr';
+const imageUrl = `${ORIGIN}${BASE}_local/${mountId}/${imageName}/`;
 const planarUrl = `${ORIGIN}${BASE}_local/${mountId}/planar_test.ome.zarr/`;
-const previewUrl = (dataset) => `${ORIGIN}${BASE}_preview/${mountId}/${dataset}`;
+const previewUrl = (image) => `${ORIGIN}${BASE}_preview/${mountId}/${image}`;
 
 try {
   const page = await browser.newPage();
@@ -146,10 +146,28 @@ try {
       (m, f, d, blosc) => createOpfsMount(m, f, d, blosc),
       mountId,
       'browser-fixture',
-      datasetName,
+      imageName,
       await bloscChunkBase64(),
     );
     assertEqual(id, mountId, 'mount id round-trips');
+  });
+
+  await check('the About dialog opens from the top-right button and closes again', async () => {
+    const state = async () => page.evaluate(() => document.getElementById('about').open);
+    assertEqual(await state(), false, 'starts closed');
+
+    await page.click('#about-open');
+    assertEqual(await state(), true, 'the button opens it');
+
+    // Everything the dialog promises to explain should actually be in it.
+    const text = await page.$eval('#about', (node) => node.innerText);
+    const topics = ['What is OME-Zarr?', 'What can I drop?', 'Which browsers work?', 'Where to go next'];
+    for (const topic of topics) {
+      assert(text.includes(topic), `about text is missing "${topic}"`);
+    }
+
+    await page.click('#about-close');
+    assertEqual(await state(), false, 'the close button closes it');
   });
 
   await check('worker serves metadata with correct status and headers', async () => {
@@ -163,7 +181,7 @@ try {
         server: response.headers.get('X-Local-Server'),
         body: await response.text(),
       };
-    }, datasetUrl);
+    }, imageUrl);
 
     assertEqual(result.status, 200, 'zarr.json should be served');
     assertEqual(result.type, 'application/json', 'content type');
@@ -183,7 +201,7 @@ try {
         length: response.headers.get('Content-Length'),
         bytes: [...bytes],
       };
-    }, datasetUrl);
+    }, imageUrl);
 
     assertEqual(result.status, 206, 'partial content');
     assertEqual(result.contentRange, `bytes 10-19/${4 * 16 * 16}`, 'content range');
@@ -195,7 +213,7 @@ try {
   await check('worker 404s a missing key', async () => {
     const status = await page.evaluate(
       async (url) => (await fetch(`${url}.zgroup`)).status,
-      datasetUrl,
+      imageUrl,
     );
     assertEqual(status, 404, 'missing v2 metadata should 404, not hang');
   });
@@ -265,7 +283,7 @@ try {
   }
 
   await check('Neuroglancer loads a zarr source from the virtual namespace', async () => {
-    const outcome = await openInNeuroglancer(datasetUrl, 'browser_test', '4panel-alt');
+    const outcome = await openInNeuroglancer(imageUrl, 'browser_test', '4panel-alt');
     assert(outcome.ok, `Neuroglancer did not load the source: ${outcome.reason}`);
     assert(outcome.sources > 0, 'layer should have a resolved data source');
   });
@@ -273,7 +291,7 @@ try {
   await check('the layer side panel starts closed', async () => {
     // `selectedLayer.visible` is false in the generated state, so the viewer
     // opens on the image instead of on a panel of shader controls.
-    const outcome = await openInNeuroglancer(datasetUrl, 'browser_test', '4panel-alt');
+    const outcome = await openInNeuroglancer(imageUrl, 'browser_test', '4panel-alt');
     assert(outcome.ok, `did not load: ${outcome.reason}`);
     assertEqual(outcome.sidePanels, 0, 'no layer side panel on the right');
   });
@@ -282,13 +300,13 @@ try {
     // `showLayerPanel: false` in src/neuroglancer/main.ts. The bar is built
     // lazily by LayerGroupViewer, so its absence is only observable once a
     // layer has actually loaded.
-    const outcome = await openInNeuroglancer(datasetUrl, 'browser_test', '4panel-alt');
+    const outcome = await openInNeuroglancer(imageUrl, 'browser_test', '4panel-alt');
     assert(outcome.ok, `did not load: ${outcome.reason}`);
     assertEqual(outcome.layerBars, 0, 'no layer-name bar above the panels');
   });
 
   await check('volumetric data renders the four orthogonal panels', async () => {
-    const outcome = await openInNeuroglancer(datasetUrl, 'browser_test', '4panel-alt');
+    const outcome = await openInNeuroglancer(imageUrl, 'browser_test', '4panel-alt');
     assert(outcome.ok, `did not load: ${outcome.reason}`);
     assertEqual(outcome.layout, '4panel-alt', 'viewer kept the requested layout');
     assertEqual(outcome.panels, 4, 'four panels for data with depth');
@@ -307,7 +325,7 @@ try {
     const served = await page.evaluate(async (url) => {
       const response = await fetch(`${url}0/c/0/0/0`, { method: 'HEAD' });
       return { status: response.status, length: response.headers.get('Content-Length') };
-    }, datasetUrl);
+    }, imageUrl);
     assertEqual(served.status, 200, 'chunk is reachable');
     assertEqual(served.length, String(4 * 16 * 16), 'chunk length');
   });
@@ -315,7 +333,7 @@ try {
   /* ------------------------------------------------------------- previews */
 
   /** Fetch a preview and decode it, returning its real pixel dimensions. */
-  async function fetchPreview(dataset) {
+  async function fetchPreview(image) {
     return page.evaluate(async (url) => {
       const response = await fetch(url);
       if (!response.ok) {
@@ -345,20 +363,20 @@ try {
         min,
         max,
       };
-    }, previewUrl(dataset));
+    }, previewUrl(image));
   }
 
-  await check('preview renders a PNG from a raw v3 dataset', async () => {
-    const result = await fetchPreview(datasetName);
+  await check('preview renders a PNG from a raw v3 image', async () => {
+    const result = await fetchPreview(imageName);
     assertEqual(result.status, 200, `expected a preview, got ${result.error ?? result.status}`);
     assertEqual(result.type, 'image/png', 'content type');
-    assertEqual(result.width, 16, 'preview width matches the coarsest level');
-    assertEqual(result.height, 16, 'preview height matches the coarsest level');
+    assertEqual(result.width, 16, 'preview width matches the lowest-resolution level');
+    assertEqual(result.height, 16, 'preview height matches the lowest-resolution level');
     assert(result.bytes > 0, 'PNG has content');
     assert(result.max > result.min, 'projection produced real contrast, not a flat image');
   });
 
-  await check('preview decodes a blosc-compressed v2 dataset', async () => {
+  await check('preview decodes a blosc-compressed v2 image', async () => {
     const result = await fetchPreview('blosc_test.ome.zarr');
     assertEqual(result.status, 200, `expected a preview, got ${result.error ?? result.status}`);
     assertEqual(result.width, 16, 'preview width');
@@ -367,7 +385,7 @@ try {
   });
 
   /** Fetch a preview and return its size plus every pixel's RGB. */
-  async function fetchPreviewPixels(dataset) {
+  async function fetchPreviewPixels(image) {
     return page.evaluate(async (url) => {
       const response = await fetch(url);
       if (!response.ok) {
@@ -379,7 +397,7 @@ try {
       ctx.drawImage(bitmap, 0, 0);
       const { data } = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
       return { status: response.status, width: bitmap.width, height: bitmap.height, data: [...data] };
-    }, previewUrl(dataset));
+    }, previewUrl(image));
   }
 
   await check('preview overlays channels in colour, from the first timepoint', async () => {
@@ -415,9 +433,9 @@ try {
     assert(Math.abs(down.r - origin.r) <= 1, 'flat channel contributes evenly');
   });
 
-  await check('preview 404s for an unknown dataset so the gallery falls back', async () => {
-    const result = await fetchPreview('not-a-dataset');
-    assertEqual(result.status, 404, 'missing dataset');
+  await check('preview 404s for an unknown image so the gallery falls back', async () => {
+    const result = await fetchPreview('not-a-image');
+    assertEqual(result.status, 404, 'missing image');
     assertEqual(result.error, 'no-preview', 'signals why');
   });
 
@@ -429,8 +447,8 @@ try {
       async (sid, base, dsUrl) => {
         const preview = `${location.origin}${base}_preview/${dsUrl.split('/_local/')[1].replace(/\/$/, '')}`;
         const catalog =
-          'Name,path,thumbnail,Folder,Location,NGFF Version,Zarr Format,Axes,Shape,Data Type,Levels\n' +
-          `browser_test,${dsUrl},${preview},browser-fixture,browser_test.ome.zarr,0.5,v3,"z, y, x","4 × 16 × 16",uint8,1\n`;
+          'Name,path,thumbnail,Folder,Location,OME-Zarr Version,Axes,Shape,Data Type,Resolution Levels\n' +
+          `browser_test,${dsUrl},${preview},browser-fixture,browser_test.ome.zarr,v5,"z, y, x","4 × 16 × 16",uint8,1\n`;
         const catalogUrl = `${location.origin}${base}_session/${sid}/catalog.csv`;
         const config = {
           title: 'Browser test gallery',
@@ -465,7 +483,7 @@ try {
       },
       sessionId,
       BASE,
-      datasetUrl,
+      imageUrl,
     );
 
     const zcPage = await browser.newPage();
@@ -479,7 +497,7 @@ try {
         { timeout: 20000 },
       );
       const text = await zcPage.evaluate(() => document.body.innerText);
-      assert(text.includes('browser_test'), 'gallery lists the dataset');
+      assert(text.includes('browser_test'), 'gallery lists the image');
 
       // The card must show the generated preview, not the placeholder icon.
       // `naturalWidth` is the decisive check: it is non-zero only if the image
@@ -501,7 +519,7 @@ try {
         thumbnail.src?.includes('/_preview/'),
         `card should show the generated preview, got ${thumbnail.src}`,
       );
-      assertEqual(thumbnail.width, 16, 'preview decoded at the coarsest level size');
+      assertEqual(thumbnail.width, 16, 'preview decoded at the lowest-resolution level size');
     } finally {
       await zcPage.close();
     }
