@@ -520,6 +520,30 @@ try {
         `card should show the generated preview, got ${thumbnail.src}`,
       );
       assertEqual(thumbnail.width, 16, 'preview decoded at the lowest-resolution level size');
+
+      // Controls that exist to pass a data URL on are hidden: these URLs only
+      // resolve in this browser, through the Service Worker, and only while the
+      // folder is mounted. See `zarrcade/local-data.css`.
+      const cardCopy = await zcPage.evaluate(() => {
+        const node = document.querySelector(
+          '.image-card-overlay .overlay-button[aria-label="Copy data URL"]',
+        );
+        return node ? getComputedStyle(node).display : 'absent';
+      });
+      assertEqual(cardCopy, 'none', 'a card still offers "Copy data URL"');
+
+      await zcPage.click('.settings-menu-trigger');
+      await new Promise((r) => setTimeout(r, 200));
+      const menu = await zcPage.evaluate(() =>
+        [...document.querySelectorAll('.settings-menu-item')]
+          .filter((node) => getComputedStyle(node).display !== 'none')
+          .map((node) => node.innerText.trim()),
+      );
+      assert(menu.length > 0, 'the menu opened');
+      assert(
+        !menu.some((label) => /Copy link|BioFile Finder/i.test(label)),
+        `menu still offers a dead link: ${menu.join(' | ')}`,
+      );
     } finally {
       await zcPage.close();
     }

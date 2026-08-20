@@ -243,8 +243,9 @@ Other cases:
 
 ## Upstream modifications
 
-**None to either project.** This was the goal, and both upstreams turned out to
-have a supported extension point that fits.
+**No code changes to either project.** This was the goal, and both upstreams
+turned out to have a supported extension point that fits. Zarrcade gains one
+added stylesheet, which only hides — see below.
 
 ### Neuroglancer — unmodified
 
@@ -312,6 +313,23 @@ The only file dropped when vendoring is Zarrcade's stock `config.json`, so that
 a bare visit to `/zarrcade/` shows its own Welcome screen rather than a
 misconfigured gallery.
 
+The only file added is `zarrcade/local-data.css`, copied in beside the bundle
+and linked from its `index.html`. Zarrcade is built for catalogs published on
+the web, and a few of its controls exist purely to pass a data URL to something
+else: **Copy data URL** on a card and in the detail view, **Copy link to
+current view**, and **View collection in BioFile Finder**. Here those URLs
+resolve only inside this browser, through the Service Worker, and only while
+the folder is still mounted; BioFile Finder in particular is handed the catalog
+URL and fetches it from `bff.allencell.org`, an origin the worker does not
+control and where no server holds a copy. The stylesheet hides those four
+controls and nothing else — no rule restyles anything, and the bundle is
+untouched. **Download metadata as CSV** is left in place, since it builds the
+file in the browser.
+
+Linking the stylesheet from the vendored `index.html`, rather than injecting it
+from the portal page, means it applies to the gallery opened in a tab of its
+own as well as inside the portal's frame.
+
 Consequences worth knowing:
 
 * Zarrcade's own thumbnail support reads the [Zarr `thumbnails` convention][thumb]
@@ -321,6 +339,9 @@ Consequences worth knowing:
 * Zarrcade derives the Neuroglancer layer name from the URL basename with only
   `.zarr` stripped, so a `sample.ome.zarr` opened from the gallery is labelled
   `sample.ome`. Opening the same image from the landing page gives `sample`.
+* Anything that would take a URL out of this browser cannot work here, and is
+  hidden rather than left to fail; a gallery of local data has nothing to link
+  to.
 
 ## Deploying to GitHub Pages
 
@@ -394,6 +415,7 @@ removed, so restructuring a folder on disk mid-session may need a reload.
 ```
 index.html                  landing page
 neuroglancer/index.html     bundled Neuroglancer
+zarrcade/local-data.css     hides Zarrcade controls that need public URLs
 public/zarrcade/            vendored Zarrcade SPA (gitignored; see scripts/)
 src/
   main.ts                   entry

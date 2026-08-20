@@ -1,0 +1,46 @@
+/**
+ * Zarrcade adjustments for local data.
+ *
+ * `scripts/vendor-zarrcade.mjs` copies this next to the vendored SPA and links
+ * it from its `index.html`. It is the only thing the portal adds to upstream,
+ * the bundle itself is untouched, and every rule here only hides: nothing is
+ * restyled and no behaviour changes.
+ *
+ * Zarrcade is built for catalogs published on the web, where a link to an image
+ * is worth copying and a remote tool can be handed the catalog's URL. Here the
+ * URLs resolve only inside this browser, through the portal's Service Worker,
+ * and only while the folder is still mounted — pasted anywhere else they lead
+ * nowhere. The controls whose whole purpose is to pass them on are hidden.
+ */
+
+/* "Copy data URL": on a card's hover overlay, and again in the detail view. */
+.image-card-overlay .overlay-button[aria-label='Copy data URL'],
+.image-detail-actions button[title='Copy data URL'] {
+  display: none;
+}
+
+/*
+ * Menu entries, matched on their icon because the label is a text node:
+ *
+ *   fa-link         "Copy link to current view" — a `_session/` URL, thrown
+ *                   away as soon as the next gallery is generated.
+ *   fa-table-cells  "View collection in BioFile Finder" — hands
+ *                   bff.allencell.org the catalog URL. That origin has no way
+ *                   to fetch it: the Service Worker serving it only controls
+ *                   this one, and no server holds a copy.
+ *
+ * "Download metadata as CSV" stays: it builds the file in the browser.
+ */
+.settings-menu-item:has(> i.fa-link),
+.settings-menu-item:has(> i.fa-table-cells) {
+  display: none;
+}
+
+/*
+ * On an image's detail page the first menu group is only "Copy link to current
+ * view", so hiding it would leave its separator stranded at the top. In the
+ * gallery the group has other entries and this does not match.
+ */
+.settings-menu-panel > .settings-menu-item:first-child:has(i.fa-link) + hr {
+  display: none;
+}
