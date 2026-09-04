@@ -116,6 +116,8 @@ const mountId = `test${Date.now().toString(36)}`;
 const imageName = 'browser_test.ome.zarr';
 const imageUrl = `${ORIGIN}${BASE}_local/${mountId}/${imageName}/`;
 const planarUrl = `${ORIGIN}${BASE}_local/${mountId}/planar_test.ome.zarr/`;
+const timelapseUrl = `${ORIGIN}${BASE}_local/${mountId}/timelapse_test.ome.zarr/`;
+const seriesUrl = `${ORIGIN}${BASE}_local/${mountId}/series_test.ome.zarr/`;
 const previewUrl = (image) => `${ORIGIN}${BASE}_preview/${mountId}/${image}`;
 
 try {
@@ -255,7 +257,11 @@ try {
           }
           const managed = window.viewer?.layerManager?.managedLayers ?? [];
           const panels = document.querySelectorAll('.neuroglancer-panel').length;
-          if (managed.length > 0 && managed[0].layer !== null && panels > 0) {
+          // The global coordinate space stays empty until the data source
+          // resolves, so it is also what says the layer is really loaded.
+          const dimensions = window.viewer?.coordinateSpace?.value?.names ?? [];
+          if (managed.length > 0 && managed[0].layer !== null && panels > 0 && dimensions.length > 0) {
+            const display = window.viewer.displayDimensions.value;
             return {
               ok: true,
               sources: managed[0].layer.dataSources?.length ?? 0,
@@ -263,6 +269,11 @@ try {
               layerBars: document.querySelectorAll('.neuroglancer-layer-panel').length,
               sidePanels: document.querySelectorAll('.neuroglancer-layer-side-panel-title').length,
               layout: window.viewer.state.toJSON().layout,
+              dimensions,
+              // The axes actually rendered; everything else is a coordinate.
+              displayDimensions: Array.from(display.displayDimensionIndices)
+                .slice(0, display.displayRank)
+                .map((index) => display.coordinateSpace.names[index]),
               statusText,
             };
           }
@@ -317,6 +328,26 @@ try {
     assert(outcome.ok, `did not load: ${outcome.reason}`);
     assertEqual(outcome.layout, 'xy', 'viewer kept the requested layout');
     assertEqual(outcome.panels, 1, 'one panel for data with no z axis');
+  });
+
+  await check('a 2-D timelapse renders its spatial axes, not time', async () => {
+    // t, c, y, x: Neuroglancer's default is to display the first three global
+    // dimensions — t, y, x — which slices through time and transposes the
+    // image. `keepTimeScrollable` in src/neuroglancer/main.ts displays x and y
+    // instead and leaves t as a coordinate to scroll through.
+    const outcome = await openInNeuroglancer(timelapseUrl, 'timelapse_test', 'xy');
+    assert(outcome.ok, `did not load: ${outcome.reason}`);
+    assertEqual(outcome.displayDimensions.join(','), 'x,y', 'renders x and y only');
+    assert(outcome.dimensions.includes('t'), 't stays in the coordinate space, scrollable');
+  });
+
+  await check('a volumetric series still renders x, y and z', async () => {
+    // t, c, z, y, x: time is already outside the display dimensions here, so
+    // nothing should change for it.
+    const outcome = await openInNeuroglancer(seriesUrl, 'series_test', '4panel-alt');
+    assert(outcome.ok, `did not load: ${outcome.reason}`);
+    assertEqual(outcome.displayDimensions.join(','), 'x,y,z', 'renders the three spatial axes');
+    assert(outcome.dimensions.includes('t'), 't stays in the coordinate space, scrollable');
   });
 
   await check('Neuroglancer requested real chunk data through the worker', async () => {
