@@ -95,6 +95,49 @@ async function buildOmeZarrV3Planar(root, name) {
 }
 
 /**
+ * A 2-D timelapse: t, c, y, x — two timepoints, no z axis.
+ *
+ * Time is the first axis and there is no depth, which is the case where
+ * Neuroglancer would otherwise render time as a spatial axis.
+ */
+async function buildOmeZarrV3Timelapse(root, name) {
+  const dir = await root.getDirectoryHandle(name, { create: true });
+  await writeFile(dir, 'zarr.json', JSON.stringify({
+    zarr_format: 3,
+    node_type: 'group',
+    attributes: {
+      ome: {
+        version: '0.5',
+        multiscales: [{
+          name: 'timelapse test',
+          axes: [
+            { name: 't', type: 'time', unit: 'second' },
+            { name: 'c', type: 'channel' },
+            { name: 'y', type: 'space', unit: 'micrometer' },
+            { name: 'x', type: 'space', unit: 'micrometer' },
+          ],
+          datasets: [{ path: '0', coordinateTransformations: [{ type: 'scale', scale: [1, 1, 1, 1] }] }],
+        }],
+      },
+    },
+  }));
+  await writeFile(dir, '0/zarr.json', JSON.stringify({
+    zarr_format: 3,
+    node_type: 'array',
+    shape: [2, 1, 16, 16],
+    data_type: 'uint8',
+    chunk_grid: { name: 'regular', configuration: { chunk_shape: [2, 1, 16, 16] } },
+    chunk_key_encoding: { name: 'default', configuration: { separator: '/' } },
+    codecs: [{ name: 'bytes', configuration: { endian: 'little' } }],
+    fill_value: 0,
+  }));
+  const voxels = new Uint8Array(2 * 16 * 16);
+  for (let i = 0; i < voxels.length; i++) voxels[i] = i % 251;
+  await writeFile(dir, '0/c/0/0/0/0', voxels);
+  return dir;
+}
+
+/**
  * A 5-D image: two timepoints, three channels, two z slices.
  *
  * Built so the preview rules are visible in the pixels. Timepoint 1 is
@@ -228,6 +271,7 @@ async function createOpfsMount(mountId, folderName, imageName, bloscChunkBase64)
   await buildOmeZarrV3(folder, imageName);
   await buildOmeZarrV3Planar(folder, 'planar_test.ome.zarr');
   await buildOmeZarrV3Series(folder, 'series_test.ome.zarr');
+  await buildOmeZarrV3Timelapse(folder, 'timelapse_test.ome.zarr');
   if (bloscChunkBase64) {
     await buildOmeZarrV2Blosc(folder, 'blosc_test.ome.zarr', bloscChunkBase64);
   }
