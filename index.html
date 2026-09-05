@@ -216,6 +216,51 @@
       <div class="viewer-bar">
         <button type="button" id="viewer-back">&larr; Back</button>
         <span id="viewer-title" class="viewer-title"></span>
+        <!--
+          Neuroglancer has its own help — the `?` button, or `h` — but it is
+          the complete list of every binding. This is the handful of gestures
+          that get you around an image, and is shown for that viewer only.
+        -->
+        <div class="viewer-help" id="viewer-help">
+          <button
+            type="button"
+            id="viewer-help-open"
+            aria-expanded="false"
+            aria-controls="viewer-help-card"
+          >
+            How to navigate
+          </button>
+          <div
+            class="viewer-help-card"
+            id="viewer-help-card"
+            role="group"
+            aria-label="Navigating the viewer"
+            hidden
+          >
+            <h2>Getting around</h2>
+            <dl>
+              <dt><kbd>Drag</kbd></dt>
+              <dd>Pan the image</dd>
+              <dt><kbd>Scroll</kbd></dt>
+              <dd>Move through z, a slice at a time</dd>
+              <dt><kbd>Ctrl</kbd> + <kbd>scroll</kbd></dt>
+              <dd>Zoom in and out</dd>
+              <dt><kbd>Shift</kbd> + <kbd>drag</kbd></dt>
+              <dd>Tilt the slice plane</dd>
+              <dt><kbd>[</kbd> or <kbd>]</kbd></dt>
+              <dd>Step back and forward in time</dd>
+              <dt><kbd>Space</kbd></dt>
+              <dd>Enlarge the panel under the pointer</dd>
+              <dt><kbd>h</kbd></dt>
+              <dd>Every shortcut, in Neuroglancer&rsquo;s own help</dd>
+            </dl>
+            <p>
+              Any axis can also be moved by scrolling on its value in the
+              viewer&rsquo;s position bar, and brightness, contrast and colour
+              live behind its sliders button.
+            </p>
+          </div>
+        </div>
         <a id="viewer-open" href="#" target="_blank" rel="noopener">Open in a new tab</a>
       </div>
       <iframe

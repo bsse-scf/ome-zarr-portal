@@ -5,8 +5,8 @@
  * `UrlHashBinding`, so the viewer state comes from the `#!{...}` fragment. The
  * portal builds that fragment (see `src/integrations/neuroglancer.ts`) with
  * `zarr://` sources pointing at the service worker's `/_local/...` namespace.
- * Two things are added here rather than through the fragment, which cannot
- * express either: `keepTimeScrollable`, and a short navigation help card.
+ * The one thing the fragment cannot express is set here, on the live viewer:
+ * see `keepTimeScrollable`.
  *
  * Because this page is served from the portal's own origin, those virtual
  * URLs are same-origin and need no CORS handling and no upstream patch.
@@ -19,8 +19,6 @@ import 'neuroglancer';
 import 'neuroglancer/unstable/ui/default_viewer.css';
 import { setupDefaultViewer } from 'neuroglancer/unstable/ui/default_viewer_setup.js';
 import type { Viewer } from 'neuroglancer/unstable/viewer.js';
-
-import { addNavigationHelp } from './navigation-help';
 
 /**
  * The dimensions Neuroglancer should render, in screen order: the first is the
@@ -91,7 +89,6 @@ function start(): void {
     showLayerPanel: false,
   });
   keepTimeScrollable(viewer);
-  addNavigationHelp(viewer);
 }
 
 // Module scripts are deferred, so the container normally exists by now; the

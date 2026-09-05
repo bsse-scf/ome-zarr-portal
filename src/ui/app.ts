@@ -65,6 +65,8 @@ export function startApp(): void {
   const viewerTitle = element<HTMLElement>('viewer-title');
   const viewerOpen = element<HTMLAnchorElement>('viewer-open');
   const viewerBack = element<HTMLButtonElement>('viewer-back');
+  const viewerHelpOpen = element<HTMLButtonElement>('viewer-help-open');
+  const viewerHelpCard = element<HTMLElement>('viewer-help-card');
   const about = element<HTMLDialogElement>('about');
 
   const dropzones = Array.from(
@@ -177,16 +179,25 @@ export function startApp(): void {
 
   /* -------------------------------------------------------------- viewers */
 
-  function openViewer(url: string, title: string): void {
+  function setHelpOpen(open: boolean): void {
+    viewerHelpCard.hidden = !open;
+    viewerHelpOpen.setAttribute('aria-expanded', String(open));
+  }
+
+  function openViewer(target: Target, url: string, title: string): void {
     viewerTitle.textContent = title;
     viewerOpen.href = url;
     viewerFrame.src = url;
+    // Which viewer is open is what decides whether the navigation help — which
+    // describes Neuroglancer's gestures — belongs in the bar; see `styles.css`.
+    viewer.dataset.target = target;
     viewer.hidden = false;
     document.body.style.overflow = 'hidden';
   }
 
   function closeViewer(): void {
     viewer.hidden = true;
+    setHelpOpen(false);
     // Drop the frame so a hidden Neuroglancer stops holding a WebGL context
     // and reading chunks in the background.
     viewerFrame.removeAttribute('src');
@@ -194,17 +205,34 @@ export function startApp(): void {
   }
 
   viewerBack.addEventListener('click', closeViewer);
+  viewerHelpOpen.addEventListener('click', () => setHelpOpen(viewerHelpCard.hidden));
+
+  // A card, not a dialog: it never takes focus, so the keys it describes keep
+  // working in the viewer while it is open. Anything else puts it away.
+  document.addEventListener('pointerdown', (event) => {
+    const target = event.target as Node;
+    if (viewerHelpCard.hidden) return;
+    if (!viewerHelpCard.contains(target) && !viewerHelpOpen.contains(target)) setHelpOpen(false);
+  });
+
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && !viewer.hidden) closeViewer();
+    if (event.key !== 'Escape' || viewer.hidden) return;
+    // The card is the innermost thing open, so it goes first.
+    if (!viewerHelpCard.hidden) setHelpOpen(false);
+    else closeViewer();
   });
 
   async function show(target: Target, images: DiscoveredImage[]): Promise<void> {
     if (target === 'neuroglancer') {
-      openViewer(neuroglancerUrl(images), `Neuroglancer — ${plural(images.length, 'layer')}`);
+      openViewer(
+        target,
+        neuroglancerUrl(images),
+        `Neuroglancer — ${plural(images.length, 'layer')}`,
+      );
       return;
     }
     const session = await createZarrcadeSession(images);
-    openViewer(session.url, `Zarrcade — ${plural(images.length, 'image')}`);
+    openViewer(target, session.url, `Zarrcade — ${plural(images.length, 'image')}`);
   }
 
   /* ------------------------------------------------------------ main flow */

@@ -683,3 +683,71 @@ main {
 }
 
 .viewer-frame { flex: 1; width: 100%; border: 0; background: #000; }
+
+/*
+ * The navigation help: a button in the viewer bar and the card it opens.
+ *
+ * Neuroglancer's gestures are the only ones worth explaining, so the button
+ * appears for that viewer and not for the gallery. `openViewer` in `app.ts`
+ * records which one is open.
+ */
+.viewer-help { display: none; }
+
+.viewer[data-target='neuroglancer'] .viewer-help {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.viewer-help-card {
+  position: absolute;
+  top: calc(100% + 0.55rem);
+  right: 0;
+  width: 22rem;
+  padding: 0.85rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font-size: 0.85rem;
+  cursor: default;
+}
+
+.viewer-help-card[hidden] { display: none; }
+
+.viewer-help-card h2 {
+  margin: 0 0 0.7rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.viewer-help-card dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  align-items: baseline;
+  gap: 0.45rem 0.8rem;
+  margin: 0;
+}
+
+.viewer-help-card dt { white-space: nowrap; }
+
+.viewer-help-card dd {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.viewer-help-card kbd {
+  padding: 0.1rem 0.35rem;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font: 0.78rem var(--mono);
+}
+
+.viewer-help-card p {
+  margin: 0.85rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
