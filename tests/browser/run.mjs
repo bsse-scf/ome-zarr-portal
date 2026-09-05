@@ -225,8 +225,12 @@ try {
   /**
    * Open the bundled viewer on one source and wait until the layer resolves.
    * Returns the rendered panel count, which is how the layout is observable.
+   *
+   * `inspect` runs against the loaded viewer page, for checks that need to
+   * click on it rather than only read its state; what it returns is merged
+   * into the outcome.
    */
-  async function openInNeuroglancer(sourceUrl, layerName, layout) {
+  async function openInNeuroglancer(sourceUrl, layerName, layout, inspect) {
     const state = {
       layers: [{ type: 'auto', name: layerName, source: `zarr://${sourceUrl}` }],
       // Mirrors what the portal generates: selected, panel closed.
@@ -287,6 +291,7 @@ try {
 
       const scheme = ngErrors.find((e) => /unsupported scheme/i.test(e));
       if (scheme) throw new Error(`console reported: ${scheme}`);
+      if (outcome.ok && inspect !== undefined) Object.assign(outcome, await inspect(ngPage));
       return outcome;
     } finally {
       await ngPage.close();
@@ -348,6 +353,25 @@ try {
     assert(outcome.ok, `did not load: ${outcome.reason}`);
     assertEqual(outcome.displayDimensions.join(','), 'x,y,z', 'renders the three spatial axes');
     assert(outcome.dimensions.includes('t'), 't stays in the coordinate space, scrollable');
+  });
+
+  await check('the navigation help card opens from the top bar', async () => {
+    // The portal's own button, beside Neuroglancer's exhaustive `?` panel.
+    const outcome = await openInNeuroglancer(imageUrl, 'browser_test', '4panel-alt', async (ngPage) => {
+      const card = '.portal-navigation-help-card';
+      const hidden = () => ngPage.$eval(card, (node) => node.hidden);
+      const startsHidden = await hidden();
+      await ngPage.click('.portal-navigation-help .neuroglancer-icon');
+      const openText = await ngPage.$eval(card, (node) => node.innerText);
+      const openedHidden = await hidden();
+      await ngPage.keyboard.press('Escape');
+      return { help: { startsHidden, openText, openedHidden, closedAgain: await hidden() } };
+    });
+    assert(outcome.ok, `did not load: ${outcome.reason}`);
+    assertEqual(outcome.help.startsHidden, true, 'the card stays out of the way until asked for');
+    assertEqual(outcome.help.openedHidden, false, 'the button opens it');
+    assert(outcome.help.openText.includes('Zoom in and out'), 'the card explains how to navigate');
+    assertEqual(outcome.help.closedAgain, true, 'Escape closes it');
   });
 
   await check('Neuroglancer requested real chunk data through the worker', async () => {

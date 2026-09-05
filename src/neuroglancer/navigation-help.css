@@ -1,0 +1,74 @@
+/**
+ * The navigation help card in the viewer's top bar.
+ *
+ * The button itself is one of Neuroglancer's own icons and needs no styling;
+ * only the card below it does, and it borrows the viewer's chrome — dark grey,
+ * hairline border, small sans-serif — so it reads as part of Neuroglancer
+ * rather than as something the portal has pasted on top.
+ */
+
+.portal-navigation-help {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.portal-navigation-help-card {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  /* Above the rendered panels, which draw over everything else. */
+  z-index: 1000;
+  box-sizing: border-box;
+  width: 22rem;
+  padding: 12px 14px;
+  background-color: #1c1c1c;
+  border: 1px solid #4a4a4a;
+  border-radius: 4px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 45%);
+  color: #efefef;
+  font: 10pt sans-serif;
+  cursor: default;
+  /* The viewer sets `user-select: none` on everything below it. */
+  user-select: text;
+}
+
+.portal-navigation-help-card h2 {
+  margin: 0 0 10px;
+  font-size: 10pt;
+  font-weight: 600;
+}
+
+.portal-navigation-help-card dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  align-items: baseline;
+  gap: 7px 12px;
+  margin: 0;
+}
+
+.portal-navigation-help-card dt {
+  white-space: nowrap;
+}
+
+.portal-navigation-help-card dd {
+  margin: 0;
+  color: #c9c9c9;
+}
+
+.portal-navigation-help-card kbd {
+  padding: 1px 5px;
+  background-color: #333;
+  border: 1px solid #565656;
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  color: #fff;
+  font: 9pt ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.portal-navigation-help-card p {
+  margin: 12px 0 0;
+  color: #9d9d9d;
+  font-size: 9pt;
+  line-height: 1.45;
+}
